@@ -1,13 +1,14 @@
-//! Apex Route Macro Demo with User-Defined Loaders
+//! Apex Route Macro Demo with User-Defined Loaders and Signals
 //!
-//! This example demonstrates the new `#[route]` macro pattern where:
+//! This example demonstrates the new `#[route]` macro pattern and signals-based state management where:
 //! - Loader functions are defined by user code
 //! - Loaders return LoaderResult<T> for data or exceptional behavior
 //! - Route macro generates handlers that call loaders and render components
+//! - Components use signals for reactive state management
 
 #![allow(missing_docs)]
 
-use apex::{Apex, ApexRouter, Html, View, component, route, tmpl};
+use apex::{Apex, ApexRouter, Html, Signal, View, component, route, tmpl};
 use std::net::SocketAddr;
 
 /// Application context containing global app information.
@@ -19,39 +20,50 @@ pub struct AppContext {
     pub version: String,
 }
 
-/// Counter component with count and name properties.
-#[component(tag = "my-counter")]
-pub struct Counter;
+/// Counter component with reactive state using signals
+#[component]
+pub struct Counter {
+    #[signal]
+    count: Signal<i32>,
+
+    #[prop(default = "Counter")]
+    name: String,
+}
 
 impl View for Counter {
     fn render(&self) -> Html {
-        let count = 42;
-
         tmpl! {
             <div class="counter">
-                <h1>Counter</h1>
-                <p>Count: {count}</p>
+                <h1>Reactive {self.name}</h1>
+                <p>Count: {self.count}</p>
+                <button onclick={|_| {
+                    self.count.update(|c| *c += 1);
+                }}>Increment</button>
+                <button onclick={|_| {
+                    self.count.update(|c| *c -= 1);
+                }}>Decrement</button>
+                <button onclick={|_| {
+                    self.count.set(0);
+                }}>Reset</button>
             </div>
         }
     }
 }
 
-#[component(
-    tag = "counter-page",
-    imports = [Counter]
-)]
-pub struct CounterPage;
+/// A page component that contains the counter
+#[component]
+pub struct CounterPage {
+    #[signal]
+    page_title: Signal<String>,
+}
 
 impl View for CounterPage {
     fn render(&self) -> Html {
-        let title = "Welcome to the Counter Page";
-        let value = "Enter text";
-
         tmpl! {
             <div>
-                <h1>{title}</h1>
-                <my-counter />
-                <input type="text" value={value} />
+                <h1>{self.page_title}</h1>
+                <Counter name="My Counter" />
+                <input name="page_title" type="text" value={self.page_title} />
             </div>
         }
     }
@@ -63,17 +75,16 @@ impl View for CounterPage {
     path = "/counter",
     component = CounterPage
 )]
-pub async fn counter_route(req: HttpRequest, context: &AppContext) -> LoaderResult<Counter> {
-    LoaderResult::ok(Counter {
-        count: 0,
-        name: "Counter".to_string(),
-    })
+pub async fn counter_route(req: HttpRequest, context: &AppContext) -> LoaderResult<CounterPage> {
+    let mut page = CounterPage::new();
+    page.set_page_title("Welcome to the Reactive Counter Page".to_string());
+    LoaderResult::ok(page)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let context = AppContext {
-        app_name: "Apex Demo".to_owned(),
+        app_name: "Apex Signals Demo".to_owned(),
         version: "1.0.0".to_owned(),
     };
 
@@ -88,6 +99,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create and configure the Apex application
     let app = Apex::new().context(context).router(router);
+
+    println!("🚀 Starting Apex Signals Demo server on http://127.0.0.1:3000/counter");
 
     // Start the server
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));

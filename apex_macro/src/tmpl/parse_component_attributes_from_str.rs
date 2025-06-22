@@ -12,14 +12,24 @@ pub(crate) fn parse_component_attributes_from_str(
         return Ok(attributes);
     }
 
-    // Parse attributes from the string, handling {variable} expressions properly
+    // Parse attributes from the string, handling {variable} expressions and quoted strings properly
     let chars = attributes_str.chars().peekable();
     let mut current_attr = String::new();
     let mut brace_depth = 0;
+    let mut in_quotes = false;
 
     for ch in chars {
-        if ch == ' ' && brace_depth == 0 && !current_attr.trim().is_empty() {
-            // Process the current attribute only when we're not inside braces
+        if ch == '"' && brace_depth == 0 {
+            // Toggle quote state when we encounter quotes outside of braces
+            in_quotes = !in_quotes;
+            current_attr.push(ch);
+        } else if (ch == ' ' || ch == '\n' || ch == '\r')
+            && brace_depth == 0
+            && !in_quotes
+            && !current_attr.trim().is_empty()
+        {
+            // Process the current attribute only when we're not inside braces or quotes
+            // Also handle newlines as attribute separators
             if let Some(attr) = parse_single_attribute(&current_attr)? {
                 attributes.insert(attr.0, attr.1);
             }
@@ -31,6 +41,9 @@ pub(crate) fn parse_component_attributes_from_str(
         } else if ch == '}' && brace_depth > 0 {
             brace_depth -= 1;
             current_attr.push(ch);
+        } else if ch.is_whitespace() && current_attr.trim().is_empty() {
+            // Skip leading whitespace (including newlines) when no attribute is being parsed
+            continue;
         } else {
             current_attr.push(ch);
         }

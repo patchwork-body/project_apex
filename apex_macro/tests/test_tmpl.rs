@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-use apex::tmpl;
+use apex::{Signal, tmpl};
 
 #[test]
 fn test_basic_div_with_text() {
@@ -126,4 +126,30 @@ fn test_conditional_structure() {
     );
 
     assert_eq!(template.to_string(), expected);
+}
+
+#[test]
+fn test_input_with_placeholder_with_space() {
+    let template = tmpl! {
+        <input type="text" placeholder="Enter text" />
+    };
+
+    assert_eq!(
+        template.to_string(),
+        "<input placeholder=\"Enter text\" type=\"text\" />"
+    );
+}
+
+#[test]
+fn test_input_with_multiple_attributes() {
+    let value = Signal::new("Hello".to_owned());
+
+    let template = tmpl! {
+        <input type="text" value={value} placeholder="Enter text" />
+    };
+
+    assert_eq!(
+        template.to_string(),
+        "<input placeholder=\"Enter text\" type=\"text\" value=\"Hello\" />"
+    );
 }

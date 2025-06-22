@@ -1,18 +1,9 @@
-use proc_macro::TokenStream;
 use quote::{ToTokens, quote};
 use syn::{Data, DeriveInput, Fields, Result};
 
-/// Component configuration parsed from macro arguments
-#[derive(Debug)]
-pub(crate) struct ComponentConfig {
-    // No longer need tag and imports - derive from struct name
-}
-
-/// Parse the component macro arguments to extract configuration
-pub(crate) fn parse_component_args(_args: TokenStream) -> Result<ComponentConfig> {
-    // No arguments needed anymore - component name derived from struct name
-    Ok(ComponentConfig {})
-}
+use crate::component::{
+    generate_component_field_setters::*, parse_component_args::ComponentConfig,
+};
 
 /// Generate the component implementation
 pub(crate) fn generate_component(
@@ -86,8 +77,10 @@ pub(crate) fn generate_component(
         let field_name = field.ident.as_ref().unwrap();
         let field_type = &field.ty;
 
-        // Check for #[prop] attributes
+        // Check for #[prop] and #[signal] attributes
         let mut default_value = None;
+        let mut is_signal = false;
+
         for attr in &field.attrs {
             if attr.path().is_ident("prop") {
                 // Simple string parsing approach for syn 2.0
@@ -103,32 +96,81 @@ pub(crate) fn generate_component(
                         }
                     }
                 }
+            } else if attr.path().is_ident("signal") {
+                is_signal = true;
             }
         }
 
-        prop_fields.push((field_name, field_type));
+        prop_fields.push((field_name, field_type, is_signal));
         prop_defaults.push(default_value.unwrap_or(0));
 
         // Generate setter method
-        let setter_name = syn::Ident::new(&format!("set_{field_name}"), field_name.span());
-        prop_setters.push(quote! {
-            #[doc = concat!("Set the ", stringify!(#field_name), " property")]
-            pub fn #setter_name(&mut self, value: #field_type) {
-                self.#field_name = value;
-            }
-        });
+        if is_signal {
+            // For signals, generate a setter that calls signal.set()
+            let setter_name = syn::Ident::new(&format!("set_{field_name}"), field_name.span());
+
+            // Extract the inner type from Signal<T>
+            let inner_type = if let syn::Type::Path(type_path) = field_type {
+                if let Some(segment) = type_path.path.segments.last() {
+                    if segment.ident == "Signal" {
+                        if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                            if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                                inner
+                            } else {
+                                field_type // fallback
+                            }
+                        } else {
+                            field_type // fallback
+                        }
+                    } else {
+                        field_type
+                    }
+                } else {
+                    field_type
+                }
+            } else {
+                field_type
+            };
+
+            prop_setters.push(quote! {
+                #[doc = concat!("Set the ", stringify!(#field_name), " signal value")]
+                pub fn #setter_name(&self, value: #inner_type) {
+                    self.#field_name.set(value);
+                }
+            });
+        } else {
+            // For regular fields, generate a mutable setter
+            let setter_name = syn::Ident::new(&format!("set_{field_name}"), field_name.span());
+            prop_setters.push(quote! {
+                #[doc = concat!("Set the ", stringify!(#field_name), " property")]
+                pub fn #setter_name(&mut self, value: #field_type) {
+                    self.#field_name = value;
+                }
+            });
+        }
     }
 
     // Generate the component implementation
-    let field_names: Vec<_> = prop_fields.iter().map(|(name, _)| name).collect();
-    let field_types: Vec<_> = prop_fields.iter().map(|(_, ty)| ty).collect();
-    let field_defaults: Vec<_> = prop_defaults
+    let field_names: Vec<_> = prop_fields.iter().map(|(name, _, _)| name).collect();
+    let field_types: Vec<_> = prop_fields.iter().map(|(_, ty, _)| ty).collect();
+    let field_defaults: Vec<_> = prop_fields
         .iter()
-        .map(|val| {
-            if *val == 0 {
-                quote! { Default::default() }
+        .zip(prop_defaults.iter())
+        .map(|((_, _, is_signal), val)| {
+            if *is_signal {
+                // For signals, initialize with Signal::new(default_value)
+                if *val == 0 {
+                    quote! { apex::Signal::new(Default::default()) }
+                } else {
+                    quote! { apex::Signal::new(#val) }
+                }
             } else {
-                quote! { #val }
+                // For regular fields, use the default
+                if *val == 0 {
+                    quote! { Default::default() }
+                } else {
+                    quote! { #val }
+                }
             }
         })
         .collect();
@@ -185,45 +227,4 @@ pub(crate) fn generate_component(
     };
 
     Ok(expanded)
-}
-
-/// Generate component field setters for the from_attributes method
-fn generate_component_field_setters(
-    prop_fields: &[(&syn::Ident, &syn::Type)],
-) -> Vec<proc_macro2::TokenStream> {
-    prop_fields
-        .iter()
-        .map(|(field_name, field_type)| {
-            let field_str = field_name.to_string();
-
-            // Generate type-specific parsing logic
-            let type_str = quote! { #field_type }.to_string();
-
-            if type_str.contains("String") {
-                quote! {
-                    if let Some(value) = attrs.get(#field_str) {
-                        component.#field_name = value.clone();
-                    }
-                }
-            } else if type_str.contains("i32") {
-                quote! {
-                    if let Some(value) = attrs.get(#field_str) {
-                        if let Ok(parsed) = value.parse::<i32>() {
-                            component.#field_name = parsed;
-                        }
-                    }
-                }
-            } else {
-                // Default: try to parse as string and convert
-                quote! {
-                    if let Some(value) = attrs.get(#field_str) {
-                        // Default string conversion for unknown types
-                        if let Ok(parsed) = value.parse() {
-                            component.#field_name = parsed;
-                        }
-                    }
-                }
-            }
-        })
-        .collect()
 }

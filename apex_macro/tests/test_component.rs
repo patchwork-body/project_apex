@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-use apex::{Html, View, component, tmpl};
+use apex::{Html, Signal, View, component, tmpl};
 
 #[test]
 fn test_primitive_component() {
@@ -375,5 +375,95 @@ fn test_component_from_attributes() {
     assert_eq!(
         component.render().to_string(),
         "<div><span>Test</span><span>42</span></div>"
+    );
+}
+
+#[test]
+fn test_component_with_signal() {
+    #[component]
+    struct SignalComponent {
+        #[signal]
+        count: Signal<i32>,
+    }
+
+    impl View for SignalComponent {
+        fn render(&self) -> Html {
+            tmpl! {
+                <div>Count: {self.count}</div>
+            }
+        }
+    }
+
+    let component = SignalComponent::new();
+    component.set_count(10);
+
+    assert_eq!(component.render().to_string(), "<div>Count: 10</div>");
+
+    component.count.update(|count| *count += 1);
+    assert_eq!(component.render().to_string(), "<div>Count: 11</div>");
+
+    component.count.set(20);
+    assert_eq!(component.render().to_string(), "<div>Count: 20</div>");
+}
+
+#[test]
+fn test_component_input_with_signal() {
+    #[component]
+    struct InputComponent {
+        #[signal]
+        value: Signal<String>,
+    }
+
+    impl View for InputComponent {
+        fn render(&self) -> Html {
+            tmpl! {
+                <input type="text" value={self.value} />
+            }
+        }
+    }
+
+    let component = InputComponent::new();
+
+    assert_eq!(
+        component.render().to_string(),
+        "<input type=\"text\" value=\"\" />"
+    );
+
+    component.set_value("Hello".to_owned());
+
+    assert_eq!(
+        component.render().to_string(),
+        "<input type=\"text\" value=\"Hello\" />"
+    );
+
+    component.value.set("World".to_owned());
+    assert_eq!(
+        component.render().to_string(),
+        "<input type=\"text\" value=\"World\" />"
+    );
+}
+
+#[test]
+fn test_component_with_signal_and_multiple_attributes() {
+    #[component]
+    struct SignalComponent {
+        #[signal]
+        value: Signal<String>,
+    }
+
+    impl View for SignalComponent {
+        fn render(&self) -> Html {
+            tmpl! {
+                <h1>{self.value}</h1>
+                <input type="text" value={self.value} placeholder="Enter text" />
+            }
+        }
+    }
+
+    let component = SignalComponent::new();
+
+    assert_eq!(
+        component.render().to_string(),
+        "<h1></h1><input placeholder=\"Enter text\" type=\"text\" value=\"\" />"
     );
 }

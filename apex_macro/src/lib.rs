@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 use syn::{DeriveInput, ItemFn, parse_macro_input};
 
 use crate::{
-    component::{generate_component, parse_component_args},
+    component::*,
     route::{generate_route, parse_route_args},
     tmpl::parse_tmpl,
 };

@@ -17,6 +17,10 @@ pub use bytes;
 pub use http;
 pub use http_body_util;
 
+/// Signals module for reactive state management
+pub mod signals;
+pub use signals::*;
+
 /// Trait that defines the view layer for components
 ///
 /// Components must implement this trait to provide their HTML rendering logic

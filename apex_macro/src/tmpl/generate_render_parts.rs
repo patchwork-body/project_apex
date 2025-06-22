@@ -122,7 +122,19 @@ pub(crate) fn generate_render_parts(
             }
             HtmlContent::Variable(var_name) => {
                 if let Ok(expr) = syn::parse_str::<syn::Expr>(var_name) {
-                    parts.push(quote! { (#expr).to_string() });
+                    // Check if the expression might be a signal by looking for signal-like patterns
+                    // For now, we generate code that handles both signals and regular values
+                    parts.push(quote! {
+                        {
+                            use apex::Reactive;
+                            let value = &#expr;
+                            if value.is_reactive() {
+                                value.get_value().to_string()
+                            } else {
+                                value.to_string()
+                            }
+                        }
+                    });
                 }
             }
             HtmlContent::Component {
