@@ -7,7 +7,7 @@ use syn::{DeriveInput, ItemFn, parse_macro_input};
 use crate::{
     component::{generate_component, parse_component_args},
     route::{generate_route, parse_route_args},
-    tmpl::parse_tmpl_with_context,
+    tmpl::parse_tmpl,
 };
 
 mod component;
@@ -143,7 +143,7 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro]
 pub fn tmpl(input: TokenStream) -> TokenStream {
-    match parse_tmpl_with_context(input) {
+    match parse_tmpl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

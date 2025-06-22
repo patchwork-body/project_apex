@@ -4,7 +4,7 @@ use syn::Result;
 
 use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 
-/// Parse HTML-like template syntax with contextual component support for the Apex framework.
+/// Parse HTML-like template syntax for the Apex framework.
 ///
 /// ## Purpose
 ///
@@ -12,19 +12,6 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 /// It transforms HTML-like template syntax from the `tmpl!` macro into executable Rust code that
 /// generates `apex::Html` objects at runtime. This is the core function that bridges declarative
 /// template syntax with type-safe, performant Rust code generation.
-///
-/// ## Why "with_context"?
-///
-/// The "context" in the name refers to multiple layers of contextual awareness this function maintains:
-///
-/// - **Macro Context**: Operates within the procedural macro compilation environment
-/// - **Template Context**: Understands the complete template structure, not just individual elements
-/// - **Component Context**: Differentiates between regular HTML elements and custom Apex components
-/// - **Code Generation Context**: Maintains the necessary context for generating proper Rust tokens
-/// - **Framework Context**: Integrates with the broader Apex ecosystem and component lifecycle
-///
-/// This distinguishes it from simpler parsing functions that handle individual elements without
-/// this broader contextual understanding.
 ///
 /// ## Functionality
 ///
@@ -137,13 +124,13 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 /// ```rust,ignore
 /// #[proc_macro]
 /// pub fn tmpl(input: TokenStream) -> TokenStream {
-///     match parse_tmpl_with_context(input) {
+///     match parse_tmpl(input) {
 ///         Ok(tokens) => tokens.into(),
 ///         Err(err) => err.to_compile_error().into(),
 ///     }
 /// }
 /// ```
-pub(crate) fn parse_tmpl_with_context(input: TokenStream) -> Result<proc_macro2::TokenStream> {
+pub(crate) fn parse_tmpl(input: TokenStream) -> Result<proc_macro2::TokenStream> {
     let input_str = input.to_string();
 
     let parsed_content = parse_tmpl_structure(&input_str)?;
