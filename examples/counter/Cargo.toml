@@ -1,0 +1,20 @@
+[package]
+name = "counter"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+
+[dependencies]
+tokio = { version = "^1", features = ["full"] }
+sqlx = { version = "^0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
+http = { version = "^1" }
+axum = { version = "^0.8" }
+hyper = { version = "^1" }
+bytes = "^1.0"
+http-body-util = "^0.1"
+tower = "^0.5"
+apex = { path = "../../apex" }
+apex_macro = { path = "../../apex_macro" }
+
+[lints]
+workspace = true
