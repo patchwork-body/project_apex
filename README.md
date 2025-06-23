@@ -5,7 +5,7 @@ A modern Rust web framework with declarative routing and component-based develop
 ## Features
 
 - **Declarative Routing**: Define routes using the `#[route]` macro
-- **Component System**: Create reusable web components with the `#[component]` macro  
+- **Component System**: Create reusable web components with the `#[component]` macro
 - **LoaderResult Pattern**: User-defined loaders that return data or exceptional behavior (redirects, errors)
 - **Type-Safe**: Built with Rust's type system for safety and performance
 - **Async-First**: Built on top of Tokio and Hyper for high performance
@@ -48,7 +48,7 @@ use apex::{LoaderResult, HttpRequest, route, component};
 
 // User-defined loader function
 async fn user_loader(
-    req: HttpRequest, 
+    req: HttpRequest,
     context: &AppContext
 ) -> LoaderResult<UserData> {
     // Load data from database, API, etc.
@@ -73,7 +73,7 @@ The `LoaderResult<T>` enum allows loaders to return data or exceptional behavior
 ```rust
 pub enum LoaderResult<T> {
     Ok(T),                    // Success with data
-    Redirect(String),         // Redirect to URL  
+    Redirect(String),         // Redirect to URL
     NotFound,                 // 404 Not Found
     ServerError(String),      // 500 Server Error
     Response(HttpResponse),   // Custom response
@@ -110,6 +110,7 @@ The `#[route]` macro supports:
 ### Generated Functions
 
 The macro generates route handler functions that:
+
 1. Call the user-defined loader (if specified)
 2. Handle the `LoaderResult`:
    - If `Ok(data)`: render component with data
@@ -128,6 +129,7 @@ pub struct MyComponent {
 ```
 
 Generated features:
+
 - `new()` constructor with defaults
 - `tag_name()` returns the HTML tag
 - `render()` returns HTML string
@@ -144,26 +146,30 @@ cargo run
 ```
 
 Visit:
+
 - http://127.0.0.1:3000/simple - Simple route
 - http://127.0.0.1:3000/counter - Component rendering
 
 ## Current Status & Roadmap
 
 ### ✅ Implemented
+
 - Basic `#[route]` macro with path and component support
 - `#[component]` macro with props and rendering
 - `LoaderResult<T>` enum for exceptional behavior
 - Generated route handlers compatible with `ApexRouter`
 
-### 🚧 In Development  
+### 🚧 In Development
+
 - User-defined loader integration (type system challenges)
 - Path parameter extraction (`:id` syntax)
 - Data flow from loaders to components
 - Improved error handling and debugging
 
 ### 🎯 Future Features
+
 - Nested routing
-- Middleware support  
+- Middleware support
 - Template engine integration
 - SSR/Client-side hydration
 - WebSocket support
@@ -171,12 +177,14 @@ Visit:
 ## Architecture
 
 Built on:
+
 - **Hyper** - HTTP server and client
-- **Tokio** - Async runtime  
+- **Tokio** - Async runtime
 - **Syn/Quote** - Procedural macros
 - **HTTP crate** - HTTP types and utilities
 
 Framework structure:
+
 - `apex` - Core framework with routing and HTTP handling
 - `apex_macro` - Procedural macros for declarative development
 - Examples showing real-world usage patterns
@@ -184,6 +192,7 @@ Framework structure:
 ## Contributing
 
 The framework is in active development. Key areas for contribution:
+
 - Loader type system improvements
 - Path parameter parsing
 - Component data binding
@@ -191,4 +200,4 @@ The framework is in active development. Key areas for contribution:
 
 ## License
 
-MIT License 
+MIT License

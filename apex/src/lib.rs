@@ -1,8 +1,13 @@
 #![allow(missing_docs)]
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::future::Future;
+#[cfg(not(target_arch = "wasm32"))]
 use std::net::SocketAddr;
+#[cfg(not(target_arch = "wasm32"))]
 use std::pin::Pin;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 
 // Re-export the component macro for convenience
@@ -14,8 +19,13 @@ pub use apex_macro::tmpl;
 
 // Re-export required 3rd party crates
 pub use bytes;
+// Server-side re-exports (only available for non-WASM targets)
+#[cfg(not(target_arch = "wasm32"))]
 pub use http;
+#[cfg(not(target_arch = "wasm32"))]
 pub use http_body_util;
+pub use wasm_bindgen;
+pub use web_sys;
 
 /// Signals module for reactive state management
 pub mod signals;
@@ -83,332 +93,343 @@ impl std::fmt::Display for Html {
     }
 }
 
-use bytes::Bytes;
-use http::{Method, Request, Response, StatusCode};
-use http_body_util::Full;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
-use tokio::net::TcpListener;
+// Server-side code (only available for non-WASM targets)
+#[cfg(not(target_arch = "wasm32"))]
+mod server {
+    use super::*;
+    use bytes::Bytes;
+    use http::{Method, Request, Response, StatusCode};
+    use http_body_util::Full;
+    use hyper::server::conn::http1;
+    use hyper::service::service_fn;
+    use hyper_util::rt::TokioIo;
+    use tokio::net::TcpListener;
 
-/// Type alias for HTTP body
-pub type Body = Full<Bytes>;
+    /// Type alias for HTTP body
+    pub type Body = Full<Bytes>;
 
-/// Type alias for HTTP request
-pub type HttpRequest = Request<hyper::body::Incoming>;
+    /// Type alias for HTTP request
+    pub type HttpRequest = Request<hyper::body::Incoming>;
 
-/// Type alias for HTTP response
-pub type HttpResponse = Response<Body>;
+    /// Type alias for HTTP response
+    pub type HttpResponse = Response<Body>;
 
-/// Type alias for route handler function
-pub type Handler =
-    Arc<dyn Fn(HttpRequest) -> Pin<Box<dyn Future<Output = HttpResponse> + Send>> + Send + Sync>;
+    /// Type alias for route handler function
+    pub type Handler = Arc<
+        dyn Fn(HttpRequest) -> Pin<Box<dyn Future<Output = HttpResponse> + Send>> + Send + Sync,
+    >;
 
-/// Loader result that can contain data or exceptional behavior
-#[derive(Debug)]
-pub enum LoaderResult<T> {
-    /// Success with data
-    Ok(T),
-    /// Redirect to another URL
-    Redirect(String),
-    /// Not found error
-    NotFound,
-    /// Internal server error
-    ServerError(String),
-    /// Custom HTTP response
-    Response(HttpResponse),
-}
-
-impl<T> LoaderResult<T> {
-    /// Create a successful result with data
-    pub fn ok(data: T) -> Self {
-        LoaderResult::Ok(data)
+    /// Loader result that can contain data or exceptional behavior
+    #[derive(Debug)]
+    pub enum LoaderResult<T> {
+        /// Success with data
+        Ok(T),
+        /// Redirect to another URL
+        Redirect(String),
+        /// Not found error
+        NotFound,
+        /// Internal server error
+        ServerError(String),
+        /// Custom HTTP response
+        Response(HttpResponse),
     }
 
-    /// Create a redirect result
-    pub fn redirect(url: impl Into<String>) -> Self {
-        LoaderResult::Redirect(url.into())
-    }
+    impl<T> LoaderResult<T> {
+        /// Create a successful result with data
+        pub fn ok(data: T) -> Self {
+            LoaderResult::Ok(data)
+        }
 
-    /// Create a not found result
-    pub fn not_found() -> Self {
-        LoaderResult::NotFound
-    }
+        /// Create a redirect result
+        pub fn redirect(url: impl Into<String>) -> Self {
+            LoaderResult::Redirect(url.into())
+        }
 
-    /// Create a server error result
-    pub fn server_error(message: impl Into<String>) -> Self {
-        LoaderResult::ServerError(message.into())
-    }
+        /// Create a not found result
+        pub fn not_found() -> Self {
+            LoaderResult::NotFound
+        }
 
-    /// Create a custom response result
-    pub fn response(response: HttpResponse) -> Self {
-        LoaderResult::Response(response)
-    }
+        /// Create a server error result
+        pub fn server_error(message: impl Into<String>) -> Self {
+            LoaderResult::ServerError(message.into())
+        }
 
-    /// Convert to HTTP response, calling the component render function if successful
-    pub fn into_response<F>(self, render_fn: F) -> HttpResponse
-    where
-        F: FnOnce(T) -> String,
-    {
-        match self {
-            LoaderResult::Ok(data) => {
-                let html = render_fn(data);
-                Response::builder()
-                    .status(StatusCode::OK)
+        /// Create a custom response result
+        pub fn response(response: HttpResponse) -> Self {
+            LoaderResult::Response(response)
+        }
+
+        /// Convert to HTTP response, calling the component render function if successful
+        pub fn into_response<F>(self, render_fn: F) -> HttpResponse
+        where
+            F: FnOnce(T) -> String,
+        {
+            match self {
+                LoaderResult::Ok(data) => {
+                    let html = render_fn(data);
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .header("content-type", "text/html; charset=utf-8")
+                        .body(Full::new(Bytes::from(html)))
+                        .unwrap()
+                }
+                LoaderResult::Redirect(url) => Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header("location", url)
+                    .body(Full::new(Bytes::new()))
+                    .unwrap(),
+                LoaderResult::NotFound => Response::builder()
+                    .status(StatusCode::NOT_FOUND)
                     .header("content-type", "text/html; charset=utf-8")
-                    .body(Full::new(Bytes::from(html)))
-                    .unwrap()
+                    .body(Full::new(Bytes::from("<h1>404 Not Found</h1>")))
+                    .unwrap(),
+                LoaderResult::ServerError(message) => Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .header("content-type", "text/html; charset=utf-8")
+                    .body(Full::new(Bytes::from(format!(
+                        "<h1>500 Server Error</h1><p>{}</p>",
+                        message
+                    ))))
+                    .unwrap(),
+                LoaderResult::Response(response) => response,
             }
-            LoaderResult::Redirect(url) => Response::builder()
-                .status(StatusCode::FOUND)
-                .header("location", url)
-                .body(Full::new(Bytes::new()))
-                .unwrap(),
-            LoaderResult::NotFound => Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(Bytes::from("<h1>404 Not Found</h1>")))
-                .unwrap(),
-            LoaderResult::ServerError(message) => Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(Bytes::from(format!(
-                    "<h1>500 Server Error</h1><p>{}</p>",
-                    message
-                ))))
-                .unwrap(),
-            LoaderResult::Response(response) => response,
-        }
-    }
-}
-
-/// HTTP method and path combination for routing
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Route {
-    pub method: Method,
-    pub path: String,
-}
-
-impl Route {
-    /// Create a new route
-    pub fn new(method: Method, path: impl Into<String>) -> Self {
-        Self {
-            method,
-            path: path.into(),
-        }
-    }
-}
-
-/// The ApexRouter handles HTTP request routing
-#[derive(Clone)]
-pub struct ApexRouter {
-    routes: HashMap<Route, Handler>,
-}
-
-impl ApexRouter {
-    /// Create a new ApexRouter
-    pub fn new() -> Self {
-        Self {
-            routes: HashMap::new(),
         }
     }
 
-    /// Add a GET route
-    pub fn get<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
-    where
-        F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = HttpResponse> + Send + 'static,
-    {
-        let route = Route::new(Method::GET, path);
-        let handler = Arc::new(move |req| {
-            Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
-        });
-        self.routes.insert(route, handler);
-
-        self
+    /// HTTP method and path combination for routing
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub struct Route {
+        pub method: Method,
+        pub path: String,
     }
 
-    /// Add a POST route
-    pub fn post<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
-    where
-        F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = HttpResponse> + Send + 'static,
-    {
-        let route = Route::new(Method::POST, path);
-        let handler = Arc::new(move |req| {
-            Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
-        });
-        self.routes.insert(route, handler);
-
-        self
+    impl Route {
+        /// Create a new route
+        pub fn new(method: Method, path: impl Into<String>) -> Self {
+            Self {
+                method,
+                path: path.into(),
+            }
+        }
     }
 
-    /// Add a PUT route
-    pub fn put<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
-    where
-        F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = HttpResponse> + Send + 'static,
-    {
-        let route = Route::new(Method::PUT, path);
-        let handler = Arc::new(move |req| {
-            Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
-        });
-        self.routes.insert(route, handler);
-
-        self
+    /// The ApexRouter handles HTTP request routing
+    #[derive(Clone)]
+    pub struct ApexRouter {
+        routes: HashMap<Route, Handler>,
     }
 
-    /// Add a DELETE route
-    pub fn delete<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
-    where
-        F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = HttpResponse> + Send + 'static,
-    {
-        let route = Route::new(Method::DELETE, path);
-        let handler = Arc::new(move |req| {
-            Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
-        });
-        self.routes.insert(route, handler);
+    impl ApexRouter {
+        /// Create a new ApexRouter
+        pub fn new() -> Self {
+            Self {
+                routes: HashMap::new(),
+            }
+        }
 
-        self
-    }
+        /// Add a GET route
+        pub fn get<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
+        where
+            F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = HttpResponse> + Send + 'static,
+        {
+            let route = Route::new(Method::GET, path);
+            let handler = Arc::new(move |req| {
+                Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
+            });
+            self.routes.insert(route, handler);
 
-    /// Add a route with any HTTP method
-    pub fn route<F, Fut>(mut self, method: Method, path: impl Into<String>, handler: F) -> Self
-    where
-        F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = HttpResponse> + Send + 'static,
-    {
-        let route = Route::new(method, path);
-        let handler = Arc::new(move |req| {
-            Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
-        });
-        self.routes.insert(route, handler);
+            self
+        }
 
-        self
-    }
+        /// Add a POST route
+        pub fn post<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
+        where
+            F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = HttpResponse> + Send + 'static,
+        {
+            let route = Route::new(Method::POST, path);
+            let handler = Arc::new(move |req| {
+                Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
+            });
+            self.routes.insert(route, handler);
 
-    /// Handle an incoming HTTP request
-    pub async fn handle(&self, req: HttpRequest) -> HttpResponse {
-        let route = Route::new(req.method().clone(), req.uri().path().to_string());
+            self
+        }
 
-        match self.routes.get(&route) {
-            Some(handler) => handler(req).await,
-            None => {
-                // Return 404 Not Found
+        /// Add a PUT route
+        pub fn put<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
+        where
+            F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = HttpResponse> + Send + 'static,
+        {
+            let route = Route::new(Method::PUT, path);
+            let handler = Arc::new(move |req| {
+                Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
+            });
+            self.routes.insert(route, handler);
+
+            self
+        }
+
+        /// Add a DELETE route
+        pub fn delete<F, Fut>(mut self, path: impl Into<String>, handler: F) -> Self
+        where
+            F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = HttpResponse> + Send + 'static,
+        {
+            let route = Route::new(Method::DELETE, path);
+            let handler = Arc::new(move |req| {
+                Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
+            });
+            self.routes.insert(route, handler);
+
+            self
+        }
+
+        /// Add a route with a custom method
+        pub fn route<F, Fut>(mut self, method: Method, path: impl Into<String>, handler: F) -> Self
+        where
+            F: Fn(HttpRequest) -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = HttpResponse> + Send + 'static,
+        {
+            let route = Route::new(method, path);
+            let handler = Arc::new(move |req| {
+                Box::pin(handler(req)) as Pin<Box<dyn Future<Output = HttpResponse> + Send>>
+            });
+            self.routes.insert(route, handler);
+
+            self
+        }
+
+        /// Handle an HTTP request
+        pub async fn handle(&self, req: HttpRequest) -> HttpResponse {
+            let route = Route::new(req.method().clone(), req.uri().path().to_string());
+
+            if let Some(handler) = self.routes.get(&route) {
+                handler(req).await
+            } else {
                 Response::builder()
                     .status(StatusCode::NOT_FOUND)
-                    .body(Full::new(Bytes::from("Not Found")))
+                    .header("content-type", "text/html; charset=utf-8")
+                    .body(Full::new(Bytes::from("<h1>404 Not Found</h1>")))
                     .unwrap()
+            }
+        }
+
+        /// Get all routes
+        pub fn routes(&self) -> impl Iterator<Item = &Route> {
+            self.routes.keys()
+        }
+    }
+
+    impl Default for ApexRouter {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    /// The main Apex application struct
+    pub struct Apex<C = ()> {
+        context: C,
+        router: Option<ApexRouter>,
+    }
+
+    impl Apex<()> {
+        /// Create a new Apex application
+        pub fn new() -> Self {
+            Self {
+                context: (),
+                router: None,
             }
         }
     }
 
-    /// Get all registered routes
-    pub fn routes(&self) -> impl Iterator<Item = &Route> {
-        self.routes.keys()
-    }
-}
-
-impl Default for ApexRouter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// The main Apex application builder
-pub struct Apex<C = ()> {
-    context: C,
-    router: Option<ApexRouter>,
-}
-
-impl Apex<()> {
-    /// Create a new Apex instance
-    pub fn new() -> Self {
-        Self {
-            context: (),
-            router: None,
+    impl<C> Apex<C>
+    where
+        C: Send + Sync + 'static,
+    {
+        /// Set the application context
+        pub fn context<NewC>(self, context: NewC) -> Apex<NewC> {
+            Apex {
+                context,
+                router: self.router,
+            }
         }
-    }
-}
 
-impl<C> Apex<C>
-where
-    C: Clone + Send + Sync + 'static,
-{
-    /// Set the context for the Apex application
-    pub fn context<NewC>(self, context: NewC) -> Apex<NewC> {
-        Apex {
-            context,
-            router: self.router,
+        /// Set the router
+        pub fn router(mut self, router: ApexRouter) -> Self {
+            self.router = Some(router);
+            self
         }
-    }
 
-    /// Set the router for the Apex application
-    pub fn router(mut self, router: ApexRouter) -> Self {
-        self.router = Some(router);
-        self
-    }
-
-    /// Get a reference to the context
-    pub fn get_context(&self) -> &C {
-        &self.context
-    }
-
-    /// Get a reference to the router
-    pub fn get_router(&self) -> Option<&ApexRouter> {
-        self.router.as_ref()
-    }
-
-    /// Handle an HTTP request using the configured router
-    pub async fn handle_request(&self, req: HttpRequest) -> HttpResponse {
-        match &self.router {
-            Some(router) => router.handle(req).await,
-            None => Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Full::new(Bytes::from("No router configured")))
-                .unwrap(),
+        /// Get the application context
+        pub fn get_context(&self) -> &C {
+            &self.context
         }
-    }
 
-    /// Start the HTTP server and serve requests
-    pub async fn serve(
-        self,
-        addr: SocketAddr,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let listener = TcpListener::bind(addr).await?;
-        println!("Apex server listening on http://{addr}");
+        /// Get the router
+        pub fn get_router(&self) -> Option<&ApexRouter> {
+            self.router.as_ref()
+        }
 
-        // Create an Arc to share the Apex instance across connections
-        let apex = Arc::new(self);
+        /// Handle an HTTP request
+        pub async fn handle_request(&self, req: HttpRequest) -> HttpResponse {
+            if let Some(router) = &self.router {
+                router.handle(req).await
+            } else {
+                Response::builder()
+                    .status(StatusCode::NOT_FOUND)
+                    .header("content-type", "text/html; charset=utf-8")
+                    .body(Full::new(Bytes::from("<h1>No router configured</h1>")))
+                    .unwrap()
+            }
+        }
 
-        loop {
-            let (stream, _) = listener.accept().await?;
-            let apex = apex.clone();
+        /// Start the HTTP server
+        pub async fn serve(
+            self,
+            addr: SocketAddr,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            let listener = TcpListener::bind(addr).await?;
+            println!("Server running on http://{}", addr);
 
-            // Spawn a task to handle each connection
-            tokio::task::spawn(async move {
-                let service = service_fn(move |req| {
-                    let apex = apex.clone();
-                    async move {
-                        let response = apex.handle_request(req).await;
-                        Ok::<_, hyper::Error>(response)
+            let service = Arc::new(self);
+
+            loop {
+                let (stream, _) = listener.accept().await?;
+                let io = TokioIo::new(stream);
+                let service = Arc::clone(&service);
+
+                tokio::task::spawn(async move {
+                    if let Err(err) =
+                        http1::Builder::new()
+                            .serve_connection(
+                                io,
+                                service_fn(move |req| {
+                                    let service = Arc::clone(&service);
+                                    async move {
+                                        Ok::<_, hyper::Error>(service.handle_request(req).await)
+                                    }
+                                }),
+                            )
+                            .await
+                    {
+                        eprintln!("Error serving connection: {:?}", err);
                     }
                 });
+            }
+        }
+    }
 
-                // Wrap the stream with TokioIo to make it compatible with hyper
-                let io = TokioIo::new(stream);
-
-                if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
-                    eprintln!("Error serving connection: {:?}", err);
-                }
-            });
+    impl Default for Apex<()> {
+        fn default() -> Self {
+            Self::new()
         }
     }
 }
 
-impl Default for Apex<()> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// Re-export server types for non-WASM targets
+#[cfg(not(target_arch = "wasm32"))]
+pub use server::*;

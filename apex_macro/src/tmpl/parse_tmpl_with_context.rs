@@ -13,6 +13,16 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 /// generates `apex::Html` objects at runtime. This is the core function that bridges declarative
 /// template syntax with type-safe, performant Rust code generation.
 ///
+/// ## SSR/CSR Separation
+///
+/// The function now supports Server-Side Rendering (SSR) and Client-Side Rendering (CSR) separation:
+/// - **Server-side**: Event handlers are omitted from HTML output for clean, static HTML
+/// - **Client-side**: Event handlers are attached to DOM elements during hydration
+///
+/// This approach follows modern web framework patterns where:
+/// 1. Server renders initial HTML without interactivity (for SEO and fast page loads)
+/// 2. Client-side JavaScript "hydrates" the page by attaching event handlers
+///
 /// ## Functionality
 ///
 /// The function performs a multi-stage transformation:
@@ -36,10 +46,12 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 ///   - Converts variables to `(expression).to_string()` calls
 ///   - Creates component instantiation and rendering code
 ///   - Produces proper HTML tag generation code
+///   - Conditionally registers event listeners based on render context
 ///
 /// ### 4. Output Assembly
 /// - Combines generated code parts into final `apex::Html` creation
 /// - Optimizes for single vs. multiple render parts
+/// - Conditionally includes event listener registration based on render context
 ///
 /// ## Template Transformation Examples
 ///
@@ -52,35 +64,27 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 /// apex::Html::new("<div>Hello World</div>".to_string())
 /// ```
 ///
-/// ### Template with Variables
+/// ### Template with Event Handlers (Server-side)
 /// ```rust,ignore
-/// let name = "Alice";
-/// tmpl! { <p>Hello, {name}!</p> }
+/// tmpl! { <button onclick={handler}>Click me</button> }
 /// ```
-/// Becomes:
+/// Server-side output:
 /// ```rust,ignore
-/// apex::Html::new([
-///     "<p>Hello, ".to_string(),
-///     (name).to_string(),
-///     "!</p>".to_string()
-/// ].join(""))
+/// apex::Html::new("<button id=\"apex_element_0\">Click me</button>".to_string())
 /// ```
 ///
-/// ### Template with Components
+/// ### Template with Event Handlers (Client-side)
 /// ```rust,ignore
-/// tmpl! {
-///     <div class="container">
-///         <my-button text="Click me" count={counter} />
-///     </div>
-/// }
+/// tmpl! { <button onclick={handler}>Click me</button> }
 /// ```
-/// Becomes:
+/// Client-side output:
 /// ```rust,ignore
-/// apex::Html::new([
-///     "<div class=\"container\">".to_string(),
-///     MyButton::from_attributes(&attrs).render().into_string(),
-///     "</div>".to_string()
-/// ].join(""))
+/// {
+///     let html = apex::Html::new("<button id=\"apex_element_0\">Click me</button>".to_string());
+///     // Event listener registration code
+///     { /* web_sys event binding */ }
+///     html
+/// }
 /// ```
 ///
 /// ## Integration with Apex Architecture
@@ -90,16 +94,8 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 /// - **Performance**: Templates are processed at compile time, eliminating runtime parsing overhead
 /// - **Type Safety**: Generated code enables compile-time checking of template variables
 /// - **Component Integration**: Seamless mixing of HTML elements and custom Apex components
+/// - **SSR/CSR Support**: Proper separation of server and client rendering concerns
 /// - **Developer Experience**: HTML-like syntax that's familiar and intuitive
-///
-/// ## Current Implementation Notes
-///
-/// The function operates within Apex's current string-based attribute parsing system, which:
-/// - **Pros**: Simple implementation, HTML-like syntax, runtime flexibility
-/// - **Cons**: Limited compile-time type safety, runtime parsing overhead for component attributes
-///
-/// Future architectural improvements may explore alternative approaches like builder patterns
-/// or trait-based properties for enhanced type safety and performance.
 ///
 /// ## Error Handling
 ///
@@ -134,15 +130,35 @@ pub(crate) fn parse_tmpl(input: TokenStream) -> Result<proc_macro2::TokenStream>
     let input_str = input.to_string();
 
     let parsed_content = parse_tmpl_structure(&input_str)?;
-    let render_parts = generate_render_parts(&parsed_content)?;
+    let (html_parts, event_parts) = generate_render_parts(&parsed_content)?;
 
-    if render_parts.len() == 1 {
-        Ok(quote! {
-            apex::Html::new(#(#render_parts)*)
-        })
+    let html_generation = if html_parts.len() == 1 {
+        quote! {
+            apex::Html::new(#(#html_parts)*)
+        }
+    } else {
+        quote! {
+            apex::Html::new([#(#html_parts),*].join(""))
+        }
+    };
+
+    // Generate code that conditionally includes event listeners based on render context
+    if event_parts.is_empty() {
+        Ok(html_generation)
     } else {
         Ok(quote! {
-            apex::Html::new([#(#render_parts),*].join(""))
+            {
+                let html = #html_generation;
+
+                // Only register event listeners on the client side
+                if apex::is_client_side_rendering() {
+                    // Register event listeners after the HTML is created
+                    // This assumes the HTML will be inserted into the DOM before this code runs
+                    #(#event_parts)*
+                }
+
+                html
+            }
         })
     }
 }

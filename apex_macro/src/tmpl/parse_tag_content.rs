@@ -2,7 +2,8 @@ use std::str::Chars;
 use syn::Result;
 
 use crate::tmpl::{
-    HtmlContent, parse_component_attributes_from_str::*, parse_tag_name_and_attributes::*,
+    ComponentAttribute, HtmlContent, parse_component_attributes_from_str::*,
+    parse_tag_name_and_attributes::*,
 };
 
 /// Check if a tag name represents a component (PascalCase only)
@@ -15,6 +16,21 @@ fn is_component(tag_name: &str) -> bool {
     // Components should be resolved from scope like variables
     let first_char = tag_name.chars().next().unwrap_or_default();
     first_char.is_ascii_uppercase()
+}
+
+/// Check if attributes contain any event handlers
+fn has_event_handlers(attributes: &std::collections::HashMap<String, ComponentAttribute>) -> bool {
+    attributes
+        .iter()
+        .any(|(_, attr)| matches!(attr, ComponentAttribute::EventHandler(_)))
+}
+
+/// Generate a unique element ID for event listener registration
+fn generate_element_id() -> String {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    format!("apex_element_{id}")
 }
 
 /// Parse tag content from character iterator
@@ -60,10 +76,18 @@ pub(crate) fn parse_tag_content(
         let attributes =
             parse_component_attributes_from_str(&attributes_str, false).unwrap_or_default();
 
+        // Generate element ID if the element has event handlers
+        let element_id = if has_event_handlers(&attributes) {
+            Some(generate_element_id())
+        } else {
+            None
+        };
+
         Ok(Some(HtmlContent::Element {
             tag: tag_name.to_owned(),
             attributes,
             self_closing,
+            element_id,
         }))
     }
 }

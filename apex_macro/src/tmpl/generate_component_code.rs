@@ -57,6 +57,10 @@ pub(crate) fn generate_component_code(
                     });
                 }
             }
+            ComponentAttribute::EventHandler(_) => {
+                // Event handlers are not supported on components, only on HTML elements
+                // Skip this attribute
+            }
         }
     }
 

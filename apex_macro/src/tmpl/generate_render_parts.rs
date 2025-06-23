@@ -1,4 +1,7 @@
-use crate::tmpl::{HtmlContent, generate_component_code::*, generate_html_opening_tag_code::*};
+use crate::tmpl::{
+    HtmlContent, generate_component_code::*, generate_event_listeners::*,
+    generate_html_opening_tag_code::*,
+};
 use quote::quote;
 use syn::Result;
 
@@ -24,6 +27,9 @@ use syn::Result;
 ///
 /// 4. **Component Integration**: Seamlessly integrates custom Apex components with standard HTML
 ///    elements in a unified rendering pipeline.
+///
+/// 5. **Event Handler Support**: Generates event listener registration code that works with
+///    web_sys for WebAssembly compatibility.
 ///
 /// ## How It Works
 ///
@@ -52,10 +58,19 @@ use syn::Result;
 ///
 /// ### HTML Elements
 /// Standard HTML elements are processed to generate proper opening/closing tags with
-/// attributes, supporting both regular and self-closing elements.
+/// attributes, supporting both regular and self-closing elements. Elements with event
+/// handlers get unique IDs automatically assigned and event listeners are registered.
 ///
 /// **Example Input**: `HtmlContent::Element { tag: "div", attributes: [...] }`
 /// **Generated Code**: `"<div class=\"container\">"`
+///
+/// ## Event Handler Processing
+///
+/// When elements contain event handlers (e.g., onclick={handler}):
+/// 1. Event handlers are excluded from HTML output
+/// 2. Elements automatically get unique IDs assigned
+/// 3. Separate event listener registration code is generated
+/// 4. Event listeners are registered using web_sys after DOM rendering
 ///
 /// ## Integration with Macro System
 ///
@@ -71,12 +86,14 @@ use syn::Result;
 /// - Variable expression parsing (invalid Rust syntax)
 /// - Component code generation (missing components, invalid properties)
 /// - HTML tag generation (malformed attributes)
+/// - Event listener generation (invalid handler expressions)
 ///
 /// ## Performance Considerations
 ///
 /// - **Compile-Time Cost**: Processing happens during compilation, not runtime
 /// - **Memory Efficiency**: Generated code avoids allocations where possible
 /// - **String Concatenation**: Uses efficient string building patterns
+/// - **Event Registration**: Minimal runtime overhead for event setup
 ///
 /// # Arguments
 ///
@@ -84,8 +101,11 @@ use syn::Result;
 ///
 /// # Returns
 ///
-/// * `Result<Vec<proc_macro2::TokenStream>>` - Vector of code tokens that can be combined
-///   into a render function, or an error if code generation fails
+/// * `Result<(Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>)>` -
+///   A tuple containing:
+///   - Vector of HTML render code tokens
+///   - Vector of event listener registration code tokens
+///     Returns an error if code generation fails
 ///
 /// # Examples
 ///
@@ -96,35 +116,39 @@ use syn::Result;
 ///     HtmlContent::Text("Hello "),
 ///     HtmlContent::Variable("name"),
 ///     HtmlContent::Element {
-///         tag: "br".to_string(),
-///         attributes: vec![],
-///         self_closing: true
+///         tag: "button".to_string(),
+///         attributes: {
+///             let mut attrs = std::collections::HashMap::new();
+///             attrs.insert("onclick".to_string(), ComponentAttribute::EventHandler("handle_click".to_string()));
+///             attrs
+///         },
+///         self_closing: false,
+///         element_id: Some("apex_element_0".to_string())
 ///     },
 /// ];
 ///
-/// let parts = generate_render_parts(&content)?;
-/// // Results in tokens that generate:
-/// // "Hello ".to_string()
-/// // (name).to_string()
-/// // "<br/>"
+/// let (html_parts, event_parts) = generate_render_parts(&content)?;
+/// // html_parts contains tokens for HTML generation
+/// // event_parts contains tokens for event listener registration
 /// ```
 pub(crate) fn generate_render_parts(
     content: &[HtmlContent],
-) -> Result<Vec<proc_macro2::TokenStream>> {
-    let mut parts = Vec::new();
+) -> Result<(Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>)> {
+    let mut html_parts = Vec::new();
+    let mut event_parts = Vec::new();
 
     for item in content {
         match item {
             HtmlContent::Text(text) => {
                 if !text.is_empty() {
-                    parts.push(quote! { #text.to_string() });
+                    html_parts.push(quote! { #text.to_string() });
                 }
             }
             HtmlContent::Variable(var_name) => {
                 if let Ok(expr) = syn::parse_str::<syn::Expr>(var_name) {
                     // Check if the expression might be a signal by looking for signal-like patterns
                     // For now, we generate code that handles both signals and regular values
-                    parts.push(quote! {
+                    html_parts.push(quote! {
                         {
                             use apex::Reactive;
                             let value = &#expr;
@@ -141,18 +165,31 @@ pub(crate) fn generate_render_parts(
                 tag, attributes, ..
             } => {
                 let component_code = generate_component_code(tag, attributes)?;
-                parts.push(quote! { #component_code.into_string() });
+                html_parts.push(quote! { #component_code.into_string() });
             }
             HtmlContent::Element {
                 tag,
                 attributes,
                 self_closing,
+                element_id,
             } => {
-                let element_code = generate_html_opening_tag_code(tag, attributes, *self_closing);
-                parts.push(quote! { #element_code });
+                // Generate HTML opening tag code with element ID support
+                let element_code = generate_html_opening_tag_code(
+                    tag,
+                    attributes,
+                    *self_closing,
+                    element_id.as_deref(),
+                );
+                html_parts.push(quote! { #element_code });
+
+                // Generate event listener registration code if element has an ID
+                if let Some(id) = element_id {
+                    let listeners = generate_event_listeners(id, attributes)?;
+                    event_parts.extend(listeners);
+                }
             }
         }
     }
 
-    Ok(parts)
+    Ok((html_parts, event_parts))
 }

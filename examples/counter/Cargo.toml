@@ -4,17 +4,33 @@ version = "0.1.0"
 edition = "2024"
 rust-version.workspace = true
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-tokio = { version = "^1", features = ["full"] }
-sqlx = { version = "^0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
-http = { version = "^1" }
-axum = { version = "^0.8" }
-hyper = { version = "^1" }
-bytes = "^1.0"
-http-body-util = "^0.1"
-tower = "^0.5"
+# Server-side dependencies (excluded for WASM)
+tokio = { version = "^1", features = ["full"], optional = true }
+sqlx = { version = "^0.8", features = ["runtime-tokio-native-tls", "sqlite"], optional = true }
+http = { version = "^1", optional = true }
+axum = { version = "^0.8", optional = true }
+hyper = { version = "^1", optional = true }
+bytes = { version = "^1.0", optional = true }
+http-body-util = { version = "^0.1", optional = true }
+tower = { version = "^0.5", optional = true }
+
+# Core dependencies (always included)
 apex = { path = "../../apex" }
 apex_macro = { path = "../../apex_macro" }
+
+# WASM-specific dependencies
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["console", "Element", "HtmlElement"] }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = ["server"]
+server = ["tokio", "sqlx", "http", "axum", "hyper", "bytes", "http-body-util", "tower"]
+wasm = ["console_error_panic_hook"]
 
 [lints]
 workspace = true

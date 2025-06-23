@@ -19,3 +19,4 @@ syn = { version = "^2", features = ["full", "extra-traits"] }
 [dev-dependencies]
 prettyplease = "^0.2"
 apex = { path = "../apex" }
+wasm-bindgen-test = "^0.3"

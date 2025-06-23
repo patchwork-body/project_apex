@@ -16,6 +16,7 @@ use quote::quote;
 /// * `tag` - The HTML tag name (e.g., "div", "span", "input")
 /// * `attributes` - A map of attribute names to their values (literals, variables, or expressions)
 /// * `self_closing` - Whether the tag is self-closing
+/// * `element_id` - Optional element ID for event listener registration
 ///
 /// # Returns
 /// A `TokenStream` that generates a String containing the HTML opening tag
@@ -23,19 +24,36 @@ pub(crate) fn generate_html_opening_tag_code(
     tag: &str,
     attributes: &std::collections::HashMap<String, ComponentAttribute>,
     self_closing: bool,
+    element_id: Option<&str>,
 ) -> proc_macro2::TokenStream {
     let closing_bracket = if self_closing { " />" } else { ">" };
 
-    if attributes.is_empty() {
+    // Filter out event handlers from HTML attributes
+    let mut html_attributes: std::collections::HashMap<String, ComponentAttribute> = attributes
+        .iter()
+        .filter_map(|(k, v)| {
+            match v {
+                ComponentAttribute::EventHandler(_) => None, // Exclude event handlers from HTML
+                _ => Some((k.clone(), v.clone())),
+            }
+        })
+        .collect();
+
+    // Add element ID if provided (for event listener registration)
+    if let Some(id) = element_id {
+        html_attributes.insert("id".to_owned(), ComponentAttribute::Literal(id.to_owned()));
+    }
+
+    if html_attributes.is_empty() {
         quote! { format!("<{}{}", #tag, #closing_bracket) }
     } else {
-        let mut attr_keys: Vec<_> = attributes.keys().collect();
+        let mut attr_keys: Vec<_> = html_attributes.keys().collect();
         attr_keys.sort();
 
         let attr_parts: Vec<proc_macro2::TokenStream> = attr_keys
             .iter()
             .map(|k| {
-                let v = &attributes[*k];
+                let v = &html_attributes[*k];
                 match v {
                     ComponentAttribute::Literal(lit) => {
                         quote! { format!("{}=\"{}\"", #k, #lit) }
@@ -55,6 +73,10 @@ pub(crate) fn generate_html_opening_tag_code(
                             // treat them as literal strings.
                             quote! { format!("{}=\"{}\"", #k, #expr) }
                         }
+                    }
+                    ComponentAttribute::EventHandler(_) => {
+                        // This should never happen since we filtered them out, but just in case
+                        quote! { format!("") }
                     }
                 }
             })
@@ -80,7 +102,7 @@ mod tests {
         let tag = "div";
         let attributes = HashMap::new();
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
         let expected = quote! { format!("<{}{}", "div", ">") }.to_string();
 
         assert_eq!(result, expected);
@@ -96,7 +118,7 @@ mod tests {
             ComponentAttribute::Literal("container".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("format !"));
         assert!(result.contains("class"));
@@ -113,7 +135,7 @@ mod tests {
             ComponentAttribute::Variable("user_input".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("user_input"));
         assert!(result.contains("value"));
@@ -129,7 +151,7 @@ mod tests {
             ComponentAttribute::Expression("count + 1".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("count + 1"));
         assert!(result.contains("data-count"));
@@ -153,7 +175,7 @@ mod tests {
             ComponentAttribute::Expression("counter * 2".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("class"));
         assert!(result.contains("btn-primary"));
@@ -170,7 +192,7 @@ mod tests {
 
         for tag in test_cases {
             let attributes = HashMap::new();
-            let result = generate_html_opening_tag_code(tag, &attributes, true).to_string();
+            let result = generate_html_opening_tag_code(tag, &attributes, true, None).to_string();
 
             assert!(result.contains(tag));
         }
@@ -186,7 +208,7 @@ mod tests {
             ComponentAttribute::Literal("value with spaces & symbols".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("data-special"));
         assert!(result.contains("value with spaces & symbols"));
@@ -203,7 +225,7 @@ mod tests {
             ComponentAttribute::Variable("123invalid".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("123invalid"));
         assert!(result.contains("class"));
@@ -220,7 +242,7 @@ mod tests {
             ComponentAttribute::Expression("invalid syntax here +++".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("invalid syntax here +++"));
         assert!(result.contains("data-value"));
@@ -240,7 +262,7 @@ mod tests {
             ComponentAttribute::Variable("empty_var".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("placeholder"));
         assert!(result.contains("value"));
@@ -259,7 +281,7 @@ mod tests {
             ),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("style"));
         assert!(result.contains("format !"));
@@ -281,7 +303,7 @@ mod tests {
             ComponentAttribute::Expression("user.is_admin()".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("disabled"));
         assert!(result.contains("is_disabled"));
@@ -307,7 +329,7 @@ mod tests {
             ComponentAttribute::Expression("test_expr()".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("literal"));
         assert!(result.contains("test-value"));
@@ -327,7 +349,7 @@ mod tests {
             ComponentAttribute::Literal("Enter \"quoted\" text".to_owned()),
         );
 
-        let result = generate_html_opening_tag_code(tag, &attributes, false).to_string();
+        let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
 
         assert!(result.contains("placeholder"));
         assert!(result.contains("quoted"));

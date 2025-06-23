@@ -143,16 +143,28 @@ pub(crate) fn parse_single_attribute(
         let key = attr_str[..eq_pos].trim().to_owned();
         let value = attr_str[eq_pos + 1..].trim();
 
+        // Check if this is an event handler (starts with "on")
+        let is_event_handler = key.starts_with("on") && key.len() > 2;
+
         let attr_value = if value.starts_with('"') && value.ends_with('"') {
-            ComponentAttribute::Literal(value[1..value.len() - 1].to_string())
+            if is_event_handler {
+                ComponentAttribute::EventHandler(value[1..value.len() - 1].to_string())
+            } else {
+                ComponentAttribute::Literal(value[1..value.len() - 1].to_string())
+            }
         } else if value.starts_with('{') && value.ends_with('}') {
             let inner = &value[1..value.len() - 1];
 
-            if inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            if is_event_handler {
+                // Event handlers are always treated as expressions/variables, not literals
+                ComponentAttribute::EventHandler(inner.to_owned())
+            } else if inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
                 ComponentAttribute::Variable(inner.to_owned())
             } else {
                 ComponentAttribute::Expression(inner.to_owned())
             }
+        } else if is_event_handler {
+            ComponentAttribute::EventHandler(value.to_owned())
         } else {
             ComponentAttribute::Literal(value.to_owned())
         };
@@ -281,13 +293,13 @@ mod tests {
 
     #[test]
     fn test_expression_with_parentheses() {
-        // Test expression with function calls
+        // Test expression with function calls - onclick should be detected as EventHandler
         let result = parse_single_attribute("onclick={handle_click()}").unwrap();
         assert_eq!(
             result,
             Some((
                 "onclick".to_owned(),
-                ComponentAttribute::Expression("handle_click()".to_owned())
+                ComponentAttribute::EventHandler("handle_click()".to_owned())
             ))
         );
     }

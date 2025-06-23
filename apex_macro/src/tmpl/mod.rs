@@ -1,4 +1,5 @@
 mod generate_component_code;
+mod generate_event_listeners;
 mod generate_html_opening_tag_code;
 mod generate_render_parts;
 mod parse_component_attributes_from_str;
@@ -24,6 +25,7 @@ pub(crate) enum HtmlContent {
         tag: String,
         attributes: std::collections::HashMap<String, ComponentAttribute>,
         self_closing: bool,
+        element_id: Option<String>, // For event listener registration
     },
 }
 
@@ -33,4 +35,5 @@ pub(crate) enum ComponentAttribute {
     Literal(String),
     Variable(String),
     Expression(String),
+    EventHandler(String), // For event handlers like onclick={handler}
 }

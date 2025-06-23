@@ -32,19 +32,26 @@ pub struct Counter {
 
 impl View for Counter {
     fn render(&self) -> Html {
+        let increment_handler = {
+            let count = self.count.clone();
+            move |_| {
+                count.update(|c| *c += 1);
+            }
+        };
+
+        let decrement_handler = {
+            let count = self.count.clone();
+            move |_| {
+                count.update(|c| *c -= 1);
+            }
+        };
+
         tmpl! {
             <div class="counter">
                 <h1>Reactive {self.name}</h1>
                 <p>Count: {self.count}</p>
-                <button onclick={|_| {
-                    self.count.update(|c| *c += 1);
-                }}>Increment</button>
-                <button onclick={|_| {
-                    self.count.update(|c| *c -= 1);
-                }}>Decrement</button>
-                <button onclick={|_| {
-                    self.count.set(0);
-                }}>Reset</button>
+                <button onclick={increment_handler}>Increment</button>
+                <button onclick={decrement_handler}>Decrement</button>
             </div>
         }
     }
