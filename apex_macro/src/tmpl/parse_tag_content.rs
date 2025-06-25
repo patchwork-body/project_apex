@@ -25,6 +25,15 @@ fn has_event_handlers(attributes: &std::collections::HashMap<String, ComponentAt
         .any(|(_, attr)| matches!(attr, ComponentAttribute::EventHandler(_)))
 }
 
+/// Check if attributes contain any dynamic variables
+fn has_dynamic_variables(
+    attributes: &std::collections::HashMap<String, ComponentAttribute>,
+) -> bool {
+    attributes
+        .iter()
+        .any(|(_, attr)| matches!(attr, ComponentAttribute::DynamicVariable { .. }))
+}
+
 /// Generate a unique element ID for event listener registration
 fn generate_element_id() -> String {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -73,19 +82,31 @@ pub(crate) fn parse_tag_content(
         }))
     } else {
         // Regular HTML element
+        // First parse attributes to see if we need an element ID
         let attributes =
             parse_component_attributes_from_str(&attributes_str, false).unwrap_or_default();
 
-        // Generate element ID if the element has event handlers
-        let element_id = if has_event_handlers(&attributes) {
-            Some(generate_element_id())
+        // Check if we need element ID (for event handlers or dynamic variables)
+        let needs_element_id =
+            has_event_handlers(&attributes) || has_dynamic_variables(&attributes);
+
+        let (final_attributes, element_id) = if needs_element_id {
+            // Generate element ID and re-parse attributes with context
+            let element_id = generate_element_id();
+            let attributes_with_context = parse_component_attributes_from_str_with_context(
+                &attributes_str,
+                false,
+                Some(&element_id),
+            )
+            .unwrap_or_default();
+            (attributes_with_context, Some(element_id))
         } else {
-            None
+            (attributes, None)
         };
 
         Ok(Some(HtmlContent::Element {
             tag: tag_name.to_owned(),
-            attributes,
+            attributes: final_attributes,
             self_closing,
             element_id,
         }))

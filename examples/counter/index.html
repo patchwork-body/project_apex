@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Apex Counter - WASM</title>
+    <link data-trunk rel="rust" data-bin="client" data-cargo-features="hydrate" />
+  </head>
+  <body>
+    <div id="app">
+      <div style="text-align: center; padding: 2rem;">
+        <h2>Loading WASM...</h2>
+        <p>Please wait while the WebAssembly module initializes.</p>
+      </div>
+    </div>
+    <script>
+      // Log when WASM is ready
+      window.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 HTML loaded, waiting for WASM initialization...');
+      });
+    </script>
+  </body>
+</html>

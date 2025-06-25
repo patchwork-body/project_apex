@@ -29,7 +29,7 @@ pub use web_sys;
 
 /// Signals module for reactive state management
 pub mod signals;
-pub use signals::*;
+pub use signals::{Effect, Reactive, Signal, render_with_effect};
 
 /// Trait that defines the view layer for components
 ///
@@ -50,16 +50,21 @@ pub struct Html {
 }
 
 impl Html {
-    /// Create a new Html instance from a string
+    /// Create a new Html instance from content
     pub fn new(content: impl Into<String>) -> Self {
-        Self {
+        Html {
             content: content.into(),
         }
     }
 
+    /// Create from string (convenience method for macros)
+    pub fn from_string(content: String) -> Self {
+        Html { content }
+    }
+
     /// Create an empty Html instance
     pub fn empty() -> Self {
-        Self {
+        Html {
             content: String::new(),
         }
     }
@@ -100,10 +105,7 @@ mod server {
     use bytes::Bytes;
     use http::{Method, Request, Response, StatusCode};
     use http_body_util::Full;
-    use hyper::server::conn::http1;
-    use hyper::service::service_fn;
-    use hyper_util::rt::TokioIo;
-    use tokio::net::TcpListener;
+    use std::path::Path;
 
     /// Type alias for HTTP body
     pub type Body = Full<Bytes>;
@@ -330,102 +332,179 @@ mod server {
         }
     }
 
-    /// The main Apex application struct
-    pub struct Apex<C = ()> {
-        context: C,
-        router: Option<ApexRouter>,
-    }
+    /// Serve static files from a directory
+    pub async fn serve_static_file(file_path: &str, static_dir: &str) -> Option<HttpResponse> {
+        let full_path = Path::new(static_dir).join(file_path.trim_start_matches('/'));
 
-    impl Apex<()> {
-        /// Create a new Apex application
-        pub fn new() -> Self {
-            Self {
-                context: (),
-                router: None,
-            }
-        }
-    }
-
-    impl<C> Apex<C>
-    where
-        C: Send + Sync + 'static,
-    {
-        /// Set the application context
-        pub fn context<NewC>(self, context: NewC) -> Apex<NewC> {
-            Apex {
-                context,
-                router: self.router,
-            }
+        if !full_path.exists() || !full_path.is_file() {
+            return None;
         }
 
-        /// Set the router
-        pub fn router(mut self, router: ApexRouter) -> Self {
-            self.router = Some(router);
-            self
-        }
-
-        /// Get the application context
-        pub fn get_context(&self) -> &C {
-            &self.context
-        }
-
-        /// Get the router
-        pub fn get_router(&self) -> Option<&ApexRouter> {
-            self.router.as_ref()
-        }
-
-        /// Handle an HTTP request
-        pub async fn handle_request(&self, req: HttpRequest) -> HttpResponse {
-            if let Some(router) = &self.router {
-                router.handle(req).await
+        // Security check: ensure the path doesn't escape the static directory
+        if let Ok(canonical_static) = Path::new(static_dir).canonicalize() {
+            if let Ok(canonical_file) = full_path.canonicalize() {
+                if !canonical_file.starts_with(canonical_static) {
+                    return None;
+                }
             } else {
-                Response::builder()
-                    .status(StatusCode::NOT_FOUND)
-                    .header("content-type", "text/html; charset=utf-8")
-                    .body(Full::new(Bytes::from("<h1>No router configured</h1>")))
-                    .unwrap()
+                return None;
+            }
+        } else {
+            return None;
+        }
+
+        let content = match tokio::fs::read(&full_path).await {
+            Ok(content) => content,
+            Err(_) => return None,
+        };
+
+        let content_type = match full_path.extension().and_then(|ext| ext.to_str()) {
+            Some("html") => "text/html; charset=utf-8",
+            Some("css") => "text/css",
+            Some("js") => "application/javascript",
+            Some("wasm") => "application/wasm",
+            Some("json") => "application/json",
+            Some("png") => "image/png",
+            Some("jpg") | Some("jpeg") => "image/jpeg",
+            Some("gif") => "image/gif",
+            Some("svg") => "image/svg+xml",
+            Some("ico") => "image/x-icon",
+            _ => "application/octet-stream",
+        };
+
+        Some(
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", content_type)
+                .body(Full::new(Bytes::from(content)))
+                .unwrap(),
+        )
+    }
+}
+
+/// Universal Apex application that works on both server and client
+#[derive(Default)]
+pub struct Apex {
+    #[cfg(not(target_arch = "wasm32"))]
+    router: Option<ApexRouter>,
+    #[cfg(not(target_arch = "wasm32"))]
+    static_dir: Option<String>,
+}
+
+impl Apex {
+    /// Create a new Apex application
+    pub fn new() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            router: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            static_dir: None,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Apex {
+    /// Set the router
+    pub fn router(mut self, router: ApexRouter) -> Self {
+        self.router = Some(router);
+        self
+    }
+
+    /// Set the static files directory (for serving WASM assets and other static files)
+    pub fn static_dir(mut self, dir: impl Into<String>) -> Self {
+        self.static_dir = Some(dir.into());
+        self
+    }
+
+    /// Get the router
+    pub fn get_router(&self) -> Option<&ApexRouter> {
+        self.router.as_ref()
+    }
+
+    /// Handle an HTTP request with routing and static file serving
+    pub async fn handle_request(&self, req: HttpRequest) -> HttpResponse {
+        let path = req.uri().path();
+
+        // First try to serve static files if static_dir is configured
+        if let Some(static_dir) = &self.static_dir {
+            if let Some(response) = server::serve_static_file(path, static_dir).await {
+                return response;
             }
         }
 
-        /// Start the HTTP server
-        pub async fn serve(
-            self,
-            addr: SocketAddr,
-        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            let listener = TcpListener::bind(addr).await?;
-            println!("Server running on http://{}", addr);
+        // If not a static file, try routing
+        if let Some(router) = &self.router {
+            router.handle(req).await
+        } else {
+            use bytes::Bytes;
+            use http::{Response, StatusCode};
+            use http_body_util::Full;
 
-            let service = Arc::new(self);
-
-            loop {
-                let (stream, _) = listener.accept().await?;
-                let io = TokioIo::new(stream);
-                let service = Arc::clone(&service);
-
-                tokio::task::spawn(async move {
-                    if let Err(err) =
-                        http1::Builder::new()
-                            .serve_connection(
-                                io,
-                                service_fn(move |req| {
-                                    let service = Arc::clone(&service);
-                                    async move {
-                                        Ok::<_, hyper::Error>(service.handle_request(req).await)
-                                    }
-                                }),
-                            )
-                            .await
-                    {
-                        eprintln!("Error serving connection: {:?}", err);
-                    }
-                });
-            }
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header("content-type", "text/html; charset=utf-8")
+                .body(Full::new(Bytes::from("<h1>No router configured</h1>")))
+                .unwrap()
         }
     }
 
-    impl Default for Apex<()> {
-        fn default() -> Self {
-            Self::new()
+    /// Start the HTTP server
+    pub async fn serve(
+        self,
+        addr: SocketAddr,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use hyper::server::conn::http1;
+        use hyper::service::service_fn;
+        use hyper_util::rt::TokioIo;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind(addr).await?;
+        println!("Server running on http://{}", addr);
+
+        let service = Arc::new(self);
+
+        loop {
+            let (stream, _) = listener.accept().await?;
+            let io = TokioIo::new(stream);
+            let service = Arc::clone(&service);
+
+            tokio::task::spawn(async move {
+                if let Err(err) = http1::Builder::new()
+                    .serve_connection(
+                        io,
+                        service_fn(move |req| {
+                            let service = Arc::clone(&service);
+                            async move { Ok::<_, hyper::Error>(service.handle_request(req).await) }
+                        }),
+                    )
+                    .await
+                {
+                    eprintln!("Error serving connection: {:?}", err);
+                }
+            });
+        }
+    }
+}
+
+// Client-side code (only available when 'hydrate' feature is enabled)
+#[cfg(feature = "hydrate")]
+mod client {
+    use super::*;
+    use web_sys::window;
+
+    impl Apex {
+        /// Hydrate the client-side application with a component
+        pub fn hydrate<T: View>(self, component: T) -> Result<(), wasm_bindgen::JsValue> {
+            let window = window().ok_or("No global window object")?;
+            let document = window.document().ok_or("No document object")?;
+
+            let body = document.body().ok_or("No body element")?;
+
+            let html = component.render();
+            body.set_inner_html(html.as_str());
+
+            Ok(())
         }
     }
 }

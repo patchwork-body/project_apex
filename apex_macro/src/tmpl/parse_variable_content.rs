@@ -59,6 +59,42 @@ pub(crate) fn parse_variable_content(
     Ok(Some(var_str.trim().to_owned()))
 }
 
+/// Analyze a variable expression to determine if it's likely signal-based (dynamic)
+///
+/// This function uses heuristics to detect signal-based variables:
+/// - Field access on `self` with signal-like patterns (e.g., `self.count`, `self.signal_field`)
+/// - Direct signal references (e.g., `count` where count is a Signal)
+/// - Method calls on signal-like objects
+///
+/// Note: This is a compile-time heuristic analysis. For precise detection,
+/// we would need type information from the Rust compiler.
+pub(crate) fn is_signal_variable(var_content: &str) -> bool {
+    let trimmed = var_content.trim();
+
+    // Pattern 1: Any expression containing self field access
+    // Examples: self.count, self.title, self.field.method(), format!("{}", self.name)
+    if trimmed.contains("self.") {
+        return true; // Any expression containing self field access is potentially dynamic
+    }
+
+    // Pattern 2: Direct signal variable reference
+    // This is harder to detect without type info, but we can check for common signal patterns
+    if trimmed.chars().all(|c| c.is_alphanumeric() || c == '_') && !trimmed.is_empty() {
+        // Simple identifier - could be a signal variable
+        // For now, assume non-self identifiers are static unless proven otherwise
+        return false;
+    }
+
+    // Pattern 3: Method calls on signals
+    // Examples: signal.get(), signal.get_value(), self.count.get()
+    if trimmed.contains(".get()") || trimmed.contains(".get_value()") {
+        return true;
+    }
+
+    // Default: assume static for complex expressions without clear signal patterns
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,5 +288,68 @@ mod tests {
         // Check remaining content
         let remaining: String = chars.collect();
         assert_eq!(remaining, "after");
+    }
+
+    // Tests for signal detection logic
+    #[test]
+    fn test_is_signal_variable_self_field() {
+        assert!(is_signal_variable("self.count"));
+        assert!(is_signal_variable("self.title"));
+        assert!(is_signal_variable("self.is_visible"));
+        assert!(is_signal_variable("self._private_field"));
+    }
+
+    #[test]
+    fn test_is_signal_variable_self_complex() {
+        assert!(is_signal_variable("self.count + 1"));
+        assert!(is_signal_variable("self.title + \" suffix\""));
+        assert!(is_signal_variable("format!(\"{}\", self.name)"));
+        assert!(is_signal_variable("self.value * 2"));
+        assert!(is_signal_variable("self.text.to_string()"));
+    }
+
+    #[test]
+    fn test_is_signal_variable_method_calls() {
+        assert!(is_signal_variable("signal.get()"));
+        assert!(is_signal_variable("my_signal.get_value()"));
+        assert!(is_signal_variable("  signal.get()  ")); // with whitespace
+        assert!(is_signal_variable("user_signal.get()"));
+    }
+
+    #[test]
+    fn test_is_signal_variable_static() {
+        assert!(!is_signal_variable("name"));
+        assert!(!is_signal_variable("user.email"));
+        assert!(!is_signal_variable("items.len()"));
+        assert!(!is_signal_variable("count + 1"));
+        assert!(!is_signal_variable("format!(\"Hello {}\", name)"));
+        assert!(!is_signal_variable("variable_name"));
+        assert!(!is_signal_variable("obj.property"));
+    }
+
+    #[test]
+    fn test_is_signal_variable_edge_cases() {
+        assert!(!is_signal_variable(""));
+        assert!(!is_signal_variable("   "));
+        assert!(!is_signal_variable("123"));
+        assert!(!is_signal_variable("true"));
+        assert!(!is_signal_variable("\"string literal\""));
+        assert!(!is_signal_variable("false"));
+    }
+
+    #[test]
+    fn test_is_signal_variable_self_method_chain() {
+        // self field access with method chains should be considered dynamic
+        assert!(is_signal_variable("self.field.method()"));
+        // But complex chains without self should be static
+        assert!(!is_signal_variable("obj.field.method()"));
+    }
+
+    #[test]
+    fn test_is_signal_variable_whitespace_handling() {
+        assert!(is_signal_variable("  self.count  "));
+        assert!(is_signal_variable("\tself.title\t"));
+        assert!(is_signal_variable("\nself.value\n"));
+        assert!(!is_signal_variable("  name  "));
     }
 }

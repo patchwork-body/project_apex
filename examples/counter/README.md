@@ -1,102 +1,65 @@
-# Apex Signals Example
+# Apex Counter Example
 
-This example demonstrates the signals-based reactive state management system in Apex, similar to what you'd find in Angular or Solid.js.
+This example demonstrates both server-side rendering and client-side WASM functionality using the Apex framework.
 
-## Key Features
+## Features
 
-### 1. Reactive State with Signals
-
-Components can define reactive state using the `#[signal]` attribute:
-
-```rust
-#[component]
-pub struct Counter {
-    #[signal]
-    count: Signal<i32>,
-
-    #[prop(default = "Counter")]
-    name: String,
-}
-```
-
-### 2. Automatic Template Subscriptions
-
-Templates automatically detect signals and subscribe to them:
-
-```rust
-impl View for Counter {
-    fn render(&self) -> Html {
-        tmpl! {
-            <div class="counter">
-                <h1>Reactive {self.name}</h1>
-                <p>Count: {self.count}</p>  // Automatically calls .get()
-            </div>
-        }
-    }
-}
-```
-
-### 3. Event Handlers Update Signals
-
-Event handlers can update signal values, which automatically triggers re-rendering:
-
-```rust
-<button onclick={|_| {
-    self.count.update(|c| *c += 1);  // Updates signal value
-}}>Increment</button>
-
-<button onclick={|_| {
-    self.count.set(0);  // Sets signal to specific value
-}}>Reset</button>
-```
-
-## Signal API
-
-### Creating Signals
-
-```rust
-// In component definitions
-#[signal]
-my_state: Signal<i32>,
-
-// Or manually
-let signal = Signal::new(42);
-let signal = signal!(42);  // Using macro
-```
-
-### Reading Signal Values
-
-```rust
-let value = signal.get();           // Get current value
-let value = {signal};               // In templates - automatic
-```
-
-### Updating Signal Values
-
-```rust
-signal.set(new_value);              // Set to specific value
-signal.update(|val| *val += 1);     // Update with closure
-```
+- **Reactive Counter Component**: Interactive counter with increment/decrement buttons
+- **Signal-based State Management**: Uses Apex signals for reactive state updates
+- **Universal Rendering**: Works both server-side and client-side
+- **WASM Integration**: Client-side interactivity powered by WebAssembly
 
 ## Running the Example
 
+### Server-Side Rendering
 ```bash
-cd examples/counter
-cargo run
+# Run the server
+cargo run --bin server
+
+# Visit http://127.0.0.1:3000/counter for server-rendered page
+# Visit http://127.0.0.1:3000/ for the main counter route
 ```
 
-Then visit `http://127.0.0.1:3000/counter` to see the reactive counter in action.
+### Client-Side WASM
 
-## How It Works
+First, install trunk for building WASM applications:
+```bash
+cargo install trunk
+```
 
-1. **Signal Creation**: Signals are created with `Signal::new(initial_value)`
-2. **Template Subscription**: The template macro automatically detects signal usage and calls `.get()`
-3. **Change Propagation**: When signals change, they notify subscribers (future feature)
-4. **Type Safety**: All signal operations are type-safe at compile time
+Then build and serve the WASM version:
+```bash
+# Build and serve the WASM app
+trunk serve
 
-## Future Enhancements
+# Or build for production
+trunk build --release
+```
 
-- [ ] Automatic dependency tracking for computed values
-- [ ] Effect system for side effects on signal changes
-- [ ] Better integration with DOM events
-- [ ] Signal-based component lifecycle hooks
+Visit http://127.0.0.1:8080 to see the interactive WASM version.
+
+## Architecture
+
+- `src/lib.rs` - Contains the Counter and CounterPage components
+- `src/bin/server.rs` - Server-side entry point with routing
+- `src/bin/client.rs` - Client-side WASM entry point
+- `index.html` - HTML template for WASM builds
+- `Cargo.toml` - Dependencies and build configuration
+
+## Component Structure
+
+### Counter Component
+- Reactive state using `Signal<i32>`
+- Increment/decrement event handlers
+- Configurable name prop
+
+### CounterPage Component
+- Contains the Counter component
+- Reactive page title
+- Full HTML page structure with styling
+
+## Development
+
+The example uses conditional compilation to include different dependencies for server vs WASM builds:
+- Server builds include tokio, axum, and other server dependencies
+- WASM builds include wasm-bindgen and web-sys for browser APIs 

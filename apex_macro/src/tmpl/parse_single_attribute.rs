@@ -1,4 +1,5 @@
 use crate::tmpl::ComponentAttribute;
+use crate::tmpl::parse_variable_content::is_signal_variable;
 use syn::Result;
 
 /// Parse a single attribute string into a structured key-value pair
@@ -41,7 +42,7 @@ use syn::Result;
 /// - **Unquoted values**: `disabled=true` → `"true"`
 /// - Used for static, compile-time known values
 ///
-/// ### 2. **Variable References** (`ComponentAttribute::Variable`)
+/// ### 2. **Variable References** (`ComponentAttribute::StaticVariable` or `ComponentAttribute::DynamicVariable`)
 /// - **Simple variables**: `count={counter}` → `counter`
 /// - Must contain only alphanumeric characters and underscores
 /// - Refers to variables in the template's scope
@@ -77,7 +78,7 @@ use syn::Result;
 ///
 /// // Variable reference
 /// let result = parse_single_attribute("count={counter}");
-/// // Returns: Ok(Some(("count", ComponentAttribute::Variable("counter"))))
+/// // Returns: Ok(Some(("count", ComponentAttribute::StaticVariable("counter"))))
 ///
 /// // Complex expression
 /// let result = parse_single_attribute("total={items.len() + 1}");
@@ -139,6 +140,13 @@ use syn::Result;
 pub(crate) fn parse_single_attribute(
     attr_str: &str,
 ) -> Result<Option<(String, ComponentAttribute)>> {
+    parse_single_attribute_with_context(attr_str, None)
+}
+
+pub(crate) fn parse_single_attribute_with_context(
+    attr_str: &str,
+    element_id: Option<&str>,
+) -> Result<Option<(String, ComponentAttribute)>> {
     if let Some(eq_pos) = attr_str.find('=') {
         let key = attr_str[..eq_pos].trim().to_owned();
         let value = attr_str[eq_pos + 1..].trim();
@@ -159,7 +167,26 @@ pub(crate) fn parse_single_attribute(
                 // Event handlers are always treated as expressions/variables, not literals
                 ComponentAttribute::EventHandler(inner.to_owned())
             } else if inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                ComponentAttribute::Variable(inner.to_owned())
+                if is_signal_variable(inner) {
+                    let context = if let Some(elem_id) = element_id {
+                        crate::tmpl::DynamicVariableContext::AttributeValue {
+                            element_id: elem_id.to_string(),
+                            attribute_name: key.clone(),
+                        }
+                    } else {
+                        // Fallback if no element ID provided
+                        crate::tmpl::DynamicVariableContext::AttributeValue {
+                            element_id: "unknown".to_string(),
+                            attribute_name: key.clone(),
+                        }
+                    };
+                    ComponentAttribute::DynamicVariable {
+                        variable: inner.to_owned(),
+                        context,
+                    }
+                } else {
+                    ComponentAttribute::StaticVariable(inner.to_owned())
+                }
             } else {
                 ComponentAttribute::Expression(inner.to_owned())
             }
@@ -234,7 +261,7 @@ mod tests {
             result,
             Some((
                 "count".to_owned(),
-                ComponentAttribute::Variable("counter".to_owned())
+                ComponentAttribute::StaticVariable("counter".to_owned())
             ))
         );
     }
@@ -247,7 +274,7 @@ mod tests {
             result,
             Some((
                 "value".to_owned(),
-                ComponentAttribute::Variable("my_var_name".to_owned())
+                ComponentAttribute::StaticVariable("my_var_name".to_owned())
             ))
         );
     }
@@ -260,7 +287,7 @@ mod tests {
             result,
             Some((
                 "id".to_owned(),
-                ComponentAttribute::Variable("var123".to_owned())
+                ComponentAttribute::StaticVariable("var123".to_owned())
             ))
         );
     }
@@ -400,7 +427,7 @@ mod tests {
             result,
             Some((
                 "empty".to_owned(),
-                ComponentAttribute::Variable("".to_owned())
+                ComponentAttribute::StaticVariable("".to_owned())
             ))
         );
     }

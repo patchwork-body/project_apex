@@ -43,11 +43,35 @@ pub(crate) fn generate_component_code(
                     attrs.insert(#key.to_string(), #lit.to_string());
                 });
             }
-            ComponentAttribute::Variable(var) => {
+            ComponentAttribute::StaticVariable(var) => {
                 if let Ok(var_ident) = syn::parse_str::<syn::Ident>(var) {
                     attr_assignments.push(quote! {
                         attrs.insert(#key.to_string(), #var_ident.to_string());
                     });
+                }
+            }
+            ComponentAttribute::DynamicVariable { variable, context } => {
+                // Context contains element and attribute information for reactive updates
+                match context {
+                    crate::tmpl::DynamicVariableContext::AttributeValue {
+                        element_id: _,
+                        attribute_name: _,
+                    } => {
+                        // Element context is available for signal registration in components
+                        if let Ok(var_ident) = syn::parse_str::<syn::Ident>(variable) {
+                            attr_assignments.push(quote! {
+                                attrs.insert(#key.to_string(), #var_ident.to_string());
+                            });
+                        }
+                    }
+                    _ => {
+                        // Fallback for unexpected context types
+                        if let Ok(var_ident) = syn::parse_str::<syn::Ident>(variable) {
+                            attr_assignments.push(quote! {
+                                attrs.insert(#key.to_string(), #var_ident.to_string());
+                            });
+                        }
+                    }
                 }
             }
             ComponentAttribute::Expression(expr) => {
@@ -148,7 +172,7 @@ mod tests {
 
         attributes.insert(
             "count".to_owned(),
-            ComponentAttribute::Variable("my_var".to_owned()),
+            ComponentAttribute::StaticVariable("my_var".to_owned()),
         );
 
         let generated_code = generate_component_code(component_type, &attributes).unwrap();
@@ -201,7 +225,7 @@ mod tests {
         );
         attributes.insert(
             "count".to_owned(),
-            ComponentAttribute::Variable("my_var".to_owned()),
+            ComponentAttribute::StaticVariable("my_var".to_owned()),
         );
         attributes.insert(
             "value".to_owned(),
@@ -243,7 +267,7 @@ mod tests {
 
         attributes.insert(
             "name".to_owned(),
-            ComponentAttribute::Variable("invalid-name".to_owned()),
+            ComponentAttribute::StaticVariable("invalid-name".to_owned()),
         );
 
         let generated_code = generate_component_code(component_type, &attributes).unwrap();

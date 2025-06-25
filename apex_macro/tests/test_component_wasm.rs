@@ -15,13 +15,13 @@ fn test_component_with_event_handler() {
 
     impl View for EventComponent {
         fn render(&self) -> Html {
-            let inc_count = {
+            let _inc_count = {
                 let count = self.count.clone();
-                move |_| count.update(|c| *c += 1)
+                move |_event: apex::web_sys::Event| count.update(|c| *c += 1)
             };
 
             tmpl! {
-                <button onclick={inc_count}>{self.count}</button>
+                <button onclick={_inc_count}>{self.count}</button>
             }
         }
     }
@@ -55,9 +55,9 @@ fn test_dom_interactions() {
 
     impl View for InteractiveComponent {
         fn render(&self) -> Html {
-            let toggle_clicked = {
+            let _toggle_clicked = {
                 let clicked = self.clicked.clone();
-                move |_| clicked.update(|c| *c = !*c)
+                move |_event: apex::web_sys::Event| clicked.update(|c| *c = !*c)
             };
 
             let clicked_text = if self.clicked.get() {
@@ -73,7 +73,7 @@ fn test_dom_interactions() {
 
             tmpl! {
                 <div>
-                    <button id="test-btn" onclick={toggle_clicked}>
+                    <button id="test-btn" onclick={_toggle_clicked}>
                         {clicked_text}
                     </button>
                     <p>{status_text}</p>

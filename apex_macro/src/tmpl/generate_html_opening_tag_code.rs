@@ -58,11 +58,35 @@ pub(crate) fn generate_html_opening_tag_code(
                     ComponentAttribute::Literal(lit) => {
                         quote! { format!("{}=\"{}\"", #k, #lit) }
                     }
-                    ComponentAttribute::Variable(var) => {
+                    ComponentAttribute::StaticVariable(var) => {
                         if let Ok(var_ident) = syn::parse_str::<syn::Ident>(var) {
                             quote! { format!("{}=\"{}\"", #k, #var_ident) }
                         } else {
                             quote! { format!("{}=\"{}\"", #k, #var) }
+                        }
+                    }
+                    ComponentAttribute::DynamicVariable { variable, context } => {
+                        // Context contains element and attribute information for reactive updates
+                        match context {
+                            crate::tmpl::DynamicVariableContext::AttributeValue {
+                                element_id: _,
+                                attribute_name: _,
+                            } => {
+                                // Element context is available for signal registration
+                                if let Ok(var_ident) = syn::parse_str::<syn::Ident>(variable) {
+                                    quote! { format!("{}=\"{}\"", #k, #var_ident) }
+                                } else {
+                                    quote! { format!("{}=\"{}\"", #k, #variable) }
+                                }
+                            }
+                            _ => {
+                                // Fallback for unexpected context types
+                                if let Ok(var_ident) = syn::parse_str::<syn::Ident>(variable) {
+                                    quote! { format!("{}=\"{}\"", #k, #var_ident) }
+                                } else {
+                                    quote! { format!("{}=\"{}\"", #k, #variable) }
+                                }
+                            }
                         }
                     }
                     ComponentAttribute::Expression(expr) => {
@@ -132,7 +156,7 @@ mod tests {
 
         attributes.insert(
             "value".to_owned(),
-            ComponentAttribute::Variable("user_input".to_owned()),
+            ComponentAttribute::StaticVariable("user_input".to_owned()),
         );
 
         let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
@@ -168,7 +192,7 @@ mod tests {
         );
         attributes.insert(
             "id".to_owned(),
-            ComponentAttribute::Variable("button_id".to_owned()),
+            ComponentAttribute::StaticVariable("button_id".to_owned()),
         );
         attributes.insert(
             "data-value".to_owned(),
@@ -222,7 +246,7 @@ mod tests {
         // Test with a variable name that can't be parsed as a valid Rust identifier
         attributes.insert(
             "class".to_owned(),
-            ComponentAttribute::Variable("123invalid".to_owned()),
+            ComponentAttribute::StaticVariable("123invalid".to_owned()),
         );
 
         let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
@@ -259,7 +283,7 @@ mod tests {
         );
         attributes.insert(
             "value".to_owned(),
-            ComponentAttribute::Variable("empty_var".to_owned()),
+            ComponentAttribute::StaticVariable("empty_var".to_owned()),
         );
 
         let result = generate_html_opening_tag_code(tag, &attributes, false, None).to_string();
@@ -296,7 +320,7 @@ mod tests {
 
         attributes.insert(
             "disabled".to_owned(),
-            ComponentAttribute::Variable("is_disabled".to_owned()),
+            ComponentAttribute::StaticVariable("is_disabled".to_owned()),
         );
         attributes.insert(
             "checked".to_owned(),
@@ -322,7 +346,7 @@ mod tests {
         );
         attributes.insert(
             "variable".to_owned(),
-            ComponentAttribute::Variable("test_var".to_owned()),
+            ComponentAttribute::StaticVariable("test_var".to_owned()),
         );
         attributes.insert(
             "expression".to_owned(),

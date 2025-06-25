@@ -6,6 +6,15 @@ pub(crate) fn parse_component_attributes_from_str(
     attributes_str: &str,
     _self_closing: bool,
 ) -> Result<std::collections::HashMap<String, ComponentAttribute>> {
+    parse_component_attributes_from_str_with_context(attributes_str, _self_closing, None)
+}
+
+/// Parse component attributes with element context for reactive updates
+pub(crate) fn parse_component_attributes_from_str_with_context(
+    attributes_str: &str,
+    _self_closing: bool,
+    element_id: Option<&str>,
+) -> Result<std::collections::HashMap<String, ComponentAttribute>> {
     let mut attributes = std::collections::HashMap::new();
 
     if attributes_str.trim().is_empty() {
@@ -30,7 +39,7 @@ pub(crate) fn parse_component_attributes_from_str(
         {
             // Process the current attribute only when we're not inside braces or quotes
             // Also handle newlines as attribute separators
-            if let Some(attr) = parse_single_attribute(&current_attr)? {
+            if let Some(attr) = parse_single_attribute_with_context(&current_attr, element_id)? {
                 attributes.insert(attr.0, attr.1);
             }
             current_attr.clear();
@@ -51,7 +60,7 @@ pub(crate) fn parse_component_attributes_from_str(
 
     // Process the last attribute
     if !current_attr.trim().is_empty() {
-        if let Some(attr) = parse_single_attribute(&current_attr)? {
+        if let Some(attr) = parse_single_attribute_with_context(&current_attr, element_id)? {
             attributes.insert(attr.0, attr.1);
         }
     }

@@ -43,10 +43,12 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 /// - Calls `generate_render_parts()` to transform parsed content into Rust code tokens
 /// - Generates efficient string concatenation code that:
 ///   - Wraps text in `.to_string()` calls
-///   - Converts variables to `(expression).to_string()` calls
+///   - Converts static variables to `(expression).to_string()` calls
+///   - Wraps dynamic variables in spans with unique IDs for DOM updates
 ///   - Creates component instantiation and rendering code
 ///   - Produces proper HTML tag generation code
 ///   - Conditionally registers event listeners based on render context
+///   - Generates signal subscriptions for reactive DOM updates
 ///
 /// ### 4. Output Assembly
 /// - Combines generated code parts into final `apex::Html` creation
@@ -83,6 +85,20 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 ///     let html = apex::Html::new("<button id=\"apex_element_0\">Click me</button>".to_string());
 ///     // Event listener registration code
 ///     { /* web_sys event binding */ }
+///     html
+/// }
+/// ```
+///
+/// ### Template with Dynamic Variables (Client-side)
+/// ```rust,ignore
+/// tmpl! { <div>Count: {counter}</div> }
+/// ```
+/// Client-side output:
+/// ```rust,ignore
+/// {
+///     let html = apex::Html::new(format!("<div>Count: <span id=\"apex_dynamic_var_0\">{}</span></div>", counter.get_value()));
+///     // Signal updater registration code
+///     { counter.subscribe(|new_value| { /* DOM update */ }) }
 ///     html
 /// }
 /// ```
@@ -128,9 +144,8 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 /// ```
 pub(crate) fn parse_tmpl(input: TokenStream) -> Result<proc_macro2::TokenStream> {
     let input_str = input.to_string();
-
     let parsed_content = parse_tmpl_structure(&input_str)?;
-    let (html_parts, event_parts) = generate_render_parts(&parsed_content)?;
+    let (html_parts, event_parts, updater_parts) = generate_render_parts(&parsed_content)?;
 
     let html_generation = if html_parts.len() == 1 {
         quote! {
@@ -142,19 +157,37 @@ pub(crate) fn parse_tmpl(input: TokenStream) -> Result<proc_macro2::TokenStream>
         }
     };
 
-    // Generate code that conditionally includes event listeners based on render context
-    if event_parts.is_empty() {
+    // Generate code that conditionally includes event listeners and signal updaters based on render context
+    if event_parts.is_empty() && updater_parts.is_empty() {
         Ok(html_generation)
     } else {
         Ok(quote! {
             {
                 let html = #html_generation;
 
-                // Only register event listeners on the client side
-                if apex::is_client_side_rendering() {
-                    // Register event listeners after the HTML is created
-                    // This assumes the HTML will be inserted into the DOM before this code runs
-                    #(#event_parts)*
+                // Only register event listeners and signal updaters on the client side
+                if cfg!(feature = "hydrate") {
+                    // Defer registration until after DOM is updated
+                    use apex::wasm_bindgen::prelude::*;
+                    use apex::web_sys::*;
+
+                    let callback = Closure::wrap(Box::new(move || {
+                        // Register event listeners after the HTML is inserted into the DOM
+                        #(#event_parts)*
+
+                        // Register signal updaters for reactive variables
+                        #(#updater_parts)*
+                    }) as Box<dyn FnMut()>);
+
+                    // Use setTimeout with 0ms delay to run on next tick
+                    let window = apex::web_sys::window().expect("no global `window` exists");
+                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                        callback.as_ref().unchecked_ref(),
+                        0
+                    );
+
+                    // Keep the closure alive
+                    callback.forget();
                 }
 
                 html

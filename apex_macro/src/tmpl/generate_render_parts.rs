@@ -101,10 +101,11 @@ use syn::Result;
 ///
 /// # Returns
 ///
-/// * `Result<(Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>)>` -
+/// * `Result<(Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>)>` -
 ///   A tuple containing:
 ///   - Vector of HTML render code tokens
 ///   - Vector of event listener registration code tokens
+///   - Vector of signal updater registration code tokens
 ///     Returns an error if code generation fails
 ///
 /// # Examples
@@ -127,15 +128,21 @@ use syn::Result;
 ///     },
 /// ];
 ///
-/// let (html_parts, event_parts) = generate_render_parts(&content)?;
+/// let (html_parts, event_parts, updater_parts) = generate_render_parts(&content)?;
 /// // html_parts contains tokens for HTML generation
 /// // event_parts contains tokens for event listener registration
+/// // updater_parts contains tokens for signal updater registration
 /// ```
 pub(crate) fn generate_render_parts(
     content: &[HtmlContent],
-) -> Result<(Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>)> {
+) -> Result<(
+    Vec<proc_macro2::TokenStream>,
+    Vec<proc_macro2::TokenStream>,
+    Vec<proc_macro2::TokenStream>,
+)> {
     let mut html_parts = Vec::new();
     let mut event_parts = Vec::new();
+    let updater_parts = Vec::new();
 
     for item in content {
         match item {
@@ -144,21 +151,64 @@ pub(crate) fn generate_render_parts(
                     html_parts.push(quote! { #text.to_string() });
                 }
             }
-            HtmlContent::Variable(var_name) => {
+            HtmlContent::StaticVariable(var_name) => {
                 if let Ok(expr) = syn::parse_str::<syn::Expr>(var_name) {
-                    // Check if the expression might be a signal by looking for signal-like patterns
-                    // For now, we generate code that handles both signals and regular values
+                    // Static variables - non-reactive, directly convert to string
                     html_parts.push(quote! {
-                        {
-                            use apex::Reactive;
-                            let value = &#expr;
-                            if value.is_reactive() {
-                                value.get_value().to_string()
-                            } else {
-                                value.to_string()
-                            }
-                        }
+                        (#expr).to_string()
                     });
+                }
+            }
+            HtmlContent::DynamicVariable { variable, context } => {
+                if let Ok(expr) = syn::parse_str::<syn::Expr>(variable) {
+                    // Dynamic variables - signal-based, use reactive rendering
+                    // Context information can be used for specialized rendering behavior
+                    match context {
+                        crate::tmpl::DynamicVariableContext::TextNode {
+                            element_id,
+                            text_node_index,
+                        } => {
+                            html_parts.push(quote! {
+                                {
+                                    use apex::Reactive;
+                                    let value = &#expr;
+                                    if value.is_reactive() {
+                                        // TODO: Register signal updater for element_id and text_node_index
+                                        // Signal updater will update DOM element when signal changes
+                                        let element_id = #element_id;
+                                        let text_node_index = #text_node_index;
+                                        // For now, just render the current value
+                                        value.get_value().to_string()
+                                    } else {
+                                        // Fallback for non-reactive values that were classified as dynamic
+                                        value.to_string()
+                                    }
+                                }
+                            });
+                        }
+                        crate::tmpl::DynamicVariableContext::AttributeValue {
+                            element_id,
+                            attribute_name,
+                        } => {
+                            // For attributes, we track the specific attribute to update
+                            html_parts.push(quote! {
+                                {
+                                    use apex::Reactive;
+                                    let value = &#expr;
+                                    if value.is_reactive() {
+                                        // TODO: Register signal updater for element_id and attribute_name
+                                        // Signal updater will update DOM attribute when signal changes
+                                        let element_id = #element_id;
+                                        let attribute_name = #attribute_name;
+                                        // For now, just render the current value
+                                        value.get_value().to_string()
+                                    } else {
+                                        value.to_string()
+                                    }
+                                }
+                            });
+                        }
+                    }
                 }
             }
             HtmlContent::Component {
@@ -180,6 +230,7 @@ pub(crate) fn generate_render_parts(
                     *self_closing,
                     element_id.as_deref(),
                 );
+
                 html_parts.push(quote! { #element_code });
 
                 // Generate event listener registration code if element has an ID
@@ -191,5 +242,5 @@ pub(crate) fn generate_render_parts(
         }
     }
 
-    Ok((html_parts, event_parts))
+    Ok((html_parts, event_parts, updater_parts))
 }

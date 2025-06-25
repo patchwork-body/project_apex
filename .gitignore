@@ -7,3 +7,5 @@ target/
 .env.development.local
 .env.test.local
 .env.production.local
+examples/**/pkg/
+examples/**/dist/
