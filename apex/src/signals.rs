@@ -9,6 +9,7 @@ thread_local! {
 
 struct SignalTracker {
     signal_elements: HashMap<u64, String>, // signal_id -> element_id
+    signal_text_nodes: HashMap<u64, (String, u32)>, // signal_id -> (element_id, text_node_index)
     next_signal_id: u64,
     signal_effects: HashMap<u64, Vec<u64>>, // signal_id -> effect_ids
 }
@@ -17,6 +18,7 @@ impl SignalTracker {
     fn new() -> Self {
         Self {
             signal_elements: HashMap::new(),
+            signal_text_nodes: HashMap::new(),
             next_signal_id: 0,
             signal_effects: HashMap::new(),
         }
@@ -24,6 +26,16 @@ impl SignalTracker {
 
     fn register_signal_element(&mut self, signal_id: u64, element_id: String) {
         self.signal_elements.insert(signal_id, element_id);
+    }
+
+    fn register_signal_text_node(
+        &mut self,
+        signal_id: u64,
+        element_id: String,
+        text_node_index: u32,
+    ) {
+        self.signal_text_nodes
+            .insert(signal_id, (element_id, text_node_index));
     }
 
     fn register_signal_effect(&mut self, signal_id: u64, effect_id: u64) {
@@ -34,12 +46,45 @@ impl SignalTracker {
     }
 
     fn notify_signal_changed(&self, signal_id: u64, _new_value: String) {
-        // Update DOM element directly (legacy behavior)
         #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
         {
             use web_sys::*;
 
-            if let Some(element_id) = self.signal_elements.get(&signal_id) {
+            // Check if this is a text node update first (more specific)
+            if let Some((element_id, text_node_index)) = self.signal_text_nodes.get(&signal_id) {
+                let window = web_sys::window().expect("no global `window` exists");
+                let document = window.document().expect("should have a document on window");
+                if let Some(element) = document.get_element_by_id(element_id) {
+                    if let Some(text_node) = element.child_nodes().item(*text_node_index as u32) {
+                        text_node.set_text_content(Some(&_new_value));
+                        console::log_1(
+                            &format!(
+                                "[APEX REACTIVITY] Updated text node {}[{}] with value: {}",
+                                element_id, text_node_index, _new_value
+                            )
+                            .into(),
+                        );
+                    } else {
+                        console::log_1(
+                            &format!(
+                                "[APEX ERROR] Text node {}[{}] not found in DOM",
+                                element_id, text_node_index
+                            )
+                            .into(),
+                        );
+                    }
+                } else {
+                    console::log_1(
+                        &format!(
+                            "[APEX ERROR] Element '{}' not found in DOM for text node update",
+                            element_id
+                        )
+                        .into(),
+                    );
+                }
+            }
+            // Fall back to full element update (legacy behavior)
+            else if let Some(element_id) = self.signal_elements.get(&signal_id) {
                 let window = web_sys::window().expect("no global `window` exists");
                 let document = window.document().expect("should have a document on window");
                 if let Some(element) = document.get_element_by_id(element_id) {
@@ -217,6 +262,26 @@ impl<T: Clone> Signal<T> {
         }
     }
 
+    /// Register this signal with a specific text node for automatic updates
+    pub fn register_text_node(&self, element_id: String, text_node_index: u32) {
+        #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+        {
+            SIGNAL_TRACKER.with(|tracker| {
+                tracker.borrow_mut().register_signal_text_node(
+                    self.get_signal_id(),
+                    element_id,
+                    text_node_index,
+                );
+            });
+        }
+        #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+        {
+            // No-op on non-WASM targets
+            let _ = element_id;
+            let _ = text_node_index;
+        }
+    }
+
     /// Notify that this signal has changed
     fn notify_change(&self, new_value: String) {
         SIGNAL_TRACKER.with(|tracker| {
@@ -326,6 +391,15 @@ pub trait Reactive {
         }
     }
 
+    /// Register this reactive value with a specific text node for automatic updates
+    fn register_text_node(&self, _element_id: String, _text_node_index: u32) {
+        // Default implementation does nothing for non-reactive values
+        #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+        {
+            // No-op on non-WASM targets
+        }
+    }
+
     /// Create an effect that tracks this reactive value and updates a DOM element
     fn create_effect(&self, _element_id: String) -> Option<Effect>
     where
@@ -360,6 +434,19 @@ impl<T: Clone> Reactive for Signal<T> {
         {
             // No-op on non-WASM targets
             let _ = element_id;
+        }
+    }
+
+    fn register_text_node(&self, element_id: String, text_node_index: u32) {
+        #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+        {
+            Signal::register_text_node(self, element_id, text_node_index);
+        }
+        #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+        {
+            // No-op on non-WASM targets
+            let _ = element_id;
+            let _ = text_node_index;
         }
     }
 
@@ -408,6 +495,19 @@ impl<T: Clone> Reactive for &Signal<T> {
         {
             // No-op on non-WASM targets
             let _ = element_id;
+        }
+    }
+
+    fn register_text_node(&self, element_id: String, text_node_index: u32) {
+        #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
+        {
+            Signal::register_text_node(*self, element_id, text_node_index);
+        }
+        #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
+        {
+            // No-op on non-WASM targets
+            let _ = element_id;
+            let _ = text_node_index;
         }
     }
 

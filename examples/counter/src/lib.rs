@@ -62,7 +62,7 @@ impl View for CounterPage {
 
         tmpl! {
             <h1>Awesome stuff</h1>
-            <button onclick={inc}>{counter.clone()}</button>
+            <button onclick={inc}>Counter: {counter}</button>
         }
     }
 }
