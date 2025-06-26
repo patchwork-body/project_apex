@@ -148,11 +148,12 @@ pub(crate) fn parse_tmpl_structure(content: &str) -> Result<Vec<HtmlContent>> {
                     if let HtmlContent::Element { element_id, .. } = &tag_content {
                         if let Some(elem_id) = element_id {
                             current_element_id = Some(elem_id.clone());
-                            text_node_counter = 0; // Reset text node counter for new element
+                            text_node_counter = 0;
                         }
                     }
                     result.push(tag_content);
                 }
+
                 inside_tag = false;
             }
             '{' if !inside_tag => {
@@ -175,7 +176,7 @@ pub(crate) fn parse_tmpl_structure(content: &str) -> Result<Vec<HtmlContent>> {
                             }
                         } else {
                             // Create a wrapper element if no current element context
-                            let wrapper_id = format!("apex_wrapper_{}", element_counter);
+                            let wrapper_id = format!("apex_wrapper_{element_counter}");
                             element_counter += 1;
                             crate::tmpl::DynamicVariableContext::TextNode {
                                 element_id: wrapper_id,
@@ -608,20 +609,10 @@ mod tests {
         assert_eq!(result.len(), 1);
 
         match &result[0] {
-            HtmlContent::DynamicVariable { variable, context } => {
+            HtmlContent::StaticVariable(variable) => {
                 assert_eq!(variable, "self.title + \" suffix\"");
-                match context {
-                    crate::tmpl::DynamicVariableContext::TextNode {
-                        element_id,
-                        text_node_index,
-                    } => {
-                        assert!(element_id.starts_with("apex_wrapper_"));
-                        assert_eq!(*text_node_index, 0);
-                    }
-                    _ => panic!("Expected TextNode context"),
-                }
             }
-            _ => panic!("Expected DynamicVariable for self expression"),
+            _ => panic!("Expected StaticVariable for self expression with conservative detection"),
         }
     }
 

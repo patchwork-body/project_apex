@@ -142,7 +142,10 @@ pub(crate) fn generate_render_parts(
 )> {
     let mut html_parts = Vec::new();
     let mut event_parts = Vec::new();
-    let updater_parts = Vec::new();
+    let mut updater_parts = Vec::new();
+
+    println!("[DEBUG] Generating render parts");
+    println!("[DEBUG] Content: {content:?}");
 
     for item in content {
         match item {
@@ -173,15 +176,27 @@ pub(crate) fn generate_render_parts(
                                     use apex::Reactive;
                                     let value = &#expr;
                                     if value.is_reactive() {
-                                        // TODO: Register signal updater for element_id and text_node_index
-                                        // Signal updater will update DOM element when signal changes
-                                        let element_id = #element_id;
-                                        let text_node_index = #text_node_index;
-                                        // For now, just render the current value
                                         value.get_value().to_string()
                                     } else {
                                         // Fallback for non-reactive values that were classified as dynamic
                                         value.to_string()
+                                    }
+                                }
+                            });
+
+                            // Only generate signal updater parts conditionally
+                            // The actual registration will only happen at runtime if the value is reactive
+                            updater_parts.push(quote! {
+                                {
+                                    use apex::Reactive;
+                                    let value_ref = &#expr;
+
+                                    // Only register signal updater if the value is actually reactive
+                                    if value_ref.is_reactive() {
+                                        // Use register_element which avoids RefCell borrow conflicts
+                                        // This uses the signal's built-in notification system
+                                        value_ref.register_element(#element_id.to_string());
+                                        apex::web_sys::console::log_1(&format!("Registered signal element for text node: {}", #element_id).into());
                                     }
                                 }
                             });

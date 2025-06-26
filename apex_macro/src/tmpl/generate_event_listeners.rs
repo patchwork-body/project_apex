@@ -171,6 +171,7 @@ pub(crate) fn generate_event_listeners(
         event_registrations.len(),
         element_id
     );
+
     Ok(event_registrations)
 }
 

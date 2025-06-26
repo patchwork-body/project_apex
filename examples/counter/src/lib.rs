@@ -8,41 +8,33 @@
 use apex::{Html, Signal, View, component, tmpl};
 
 /// Counter component with reactive state using signals
-#[component]
-pub struct Counter {
-    #[signal]
-    pub count: Signal<i32>,
-}
+// #[component]
+// pub struct Counter {
+//     #[signal]
+//     pub count: Signal<i32>,
+// }
 
-impl View for Counter {
-    fn render(&self) -> Html {
-        let increment_handler = {
-            let count = self.count.clone();
-            move |_event: web_sys::Event| {
-                web_sys::console::log_1(&"Incrementing".into());
-                count.update(|c| *c += 1);
-                web_sys::console::log_1(&format!("Count: {}", count.get()).into());
-            }
-        };
+// impl View for Counter {
+//     fn render(&self) -> Html {
+//         let increment_handler = {
+//             let count = self.count.clone();
+//             move |_event: web_sys::Event| count.update(|c| *c += 1)
+//         };
 
-        let decrement_handler = {
-            let count = self.count.clone();
-            move |_event: web_sys::Event| {
-                web_sys::console::log_1(&"Decrementing".into());
-                count.update(|c| *c -= 1);
-                web_sys::console::log_1(&format!("Count: {}", count.get()).into());
-            }
-        };
+//         let decrement_handler = {
+//             let count = self.count.clone();
+//             move |_event: web_sys::Event| count.update(|c| *c -= 1)
+//         };
 
-        tmpl! {
-            <div class="counter">
-                <p>Count: {self.count}</p>
-                <button onclick={increment_handler}>Increment</button>
-                <button onclick={decrement_handler}>Decrement</button>
-            </div>
-        }
-    }
-}
+//         tmpl! {
+//             <div class="counter">
+//                 <p>Count: {self.count}</p>
+//                 <button onclick={increment_handler}>Increment</button>
+//                 <button onclick={decrement_handler}>Decrement</button>
+//             </div>
+//         }
+//     }
+// }
 
 /// A page component that contains the counter
 #[component]
@@ -53,17 +45,24 @@ pub struct CounterPage {
 
 impl View for CounterPage {
     fn render(&self) -> Html {
+        let counter = self.counter.clone(); // Clone signal for use in template
+
         let inc = {
-            let counter = self.counter.clone();
+            let counter = counter.clone(); // Use self.counter.clone() to avoid conflicts
+
             move |_event: web_sys::Event| {
+                // First get the current value, then update
+                let old_value = counter.get();
                 counter.update(|c| *c += 1);
-                web_sys::console::log_1(&format!("Counter: {}", counter.get()).into());
+                web_sys::console::log_1(
+                    &format!("Counter updated from {} to {}", old_value, old_value + 1).into(),
+                );
             }
         };
 
         tmpl! {
             <h1>Awesome stuff</h1>
-            <button onclick={inc}>{self.counter}</button>
+            <button onclick={inc}>{counter.clone()}</button>
         }
     }
 }

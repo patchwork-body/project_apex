@@ -166,7 +166,8 @@ pub(crate) fn parse_tmpl(input: TokenStream) -> Result<proc_macro2::TokenStream>
                 let html = #html_generation;
 
                 // Only register event listeners and signal updaters on the client side
-                if cfg!(feature = "hydrate") {
+                #[cfg(feature = "hydrate")]
+                {
                     // Defer registration until after DOM is updated
                     use apex::wasm_bindgen::prelude::*;
                     use apex::web_sys::*;

@@ -148,10 +148,13 @@ fn test_component_with_conditional_rendering() {
 
     impl View for ConditionalComponent {
         fn render(&self) -> Html {
+            let show_content = self.show_content;
+            let message = self.message.clone();
+
             tmpl! {
                 <div>
-                    {if self.show_content {
-                        tmpl! { <p>{self.message}</p> }.to_string()
+                    {if show_content {
+                        tmpl! { <p>{message}</p> }.to_string()
                     } else {
                         tmpl! { <p>Content hidden</p> }.to_string()
                     }}
@@ -186,8 +189,11 @@ fn test_nested_components_with_attributes() {
 
     impl View for Button {
         fn render(&self) -> Html {
+            let text = self.text.clone();
+            let disabled = self.disabled;
+
             tmpl! {
-                <button disabled={self.disabled.to_string()}>{self.text}</button>
+                <button disabled={disabled.to_string()}>{text}</button>
             }
         }
     }
@@ -200,10 +206,13 @@ fn test_nested_components_with_attributes() {
 
     impl View for Card {
         fn render(&self) -> Html {
+            let title = self.title.clone();
+            let content = self.content.clone();
+
             tmpl! {
                 <div class="card">
-                    <h2>{self.title}</h2>
-                    <p>{self.content}</p>
+                    <h2>{title}</h2>
+                    <p>{content}</p>
                     <Button />
                 </div>
             }
@@ -231,11 +240,15 @@ fn test_component_with_multiple_string_attributes() {
 
     impl View for UserProfile {
         fn render(&self) -> Html {
+            let name = self.name.clone();
+            let email = self.email.clone();
+            let bio = self.bio.clone();
+
             tmpl! {
                 <div class="profile">
-                    <h1>{self.name}</h1>
-                    <p>Email: {self.email}</p>
-                    <p>Bio: {self.bio}</p>
+                    <h1>{name}</h1>
+                    <p>Email: {email}</p>
+                    <p>Bio: {bio}</p>
                 </div>
             }
         }
@@ -262,12 +275,17 @@ fn test_component_with_mixed_types() {
 
     impl View for MixedComponent {
         fn render(&self) -> Html {
+            let id = self.id.clone();
+            let name = self.name.clone();
+            let active = self.active.clone();
+            let score = self.score.clone();
+
             tmpl! {
                 <div>
-                    <span>ID: {self.id}</span>
-                    <span>Name: {self.name}</span>
-                    <span>Active: {self.active}</span>
-                    <span>Score: {self.score}</span>
+                    <span>ID: {id}</span>
+                    <span>Name: {name}</span>
+                    <span>Active: {active}</span>
+                    <span>Score: {score}</span>
                 </div>
             }
         }
@@ -312,11 +330,15 @@ fn test_component_default_values() {
 
     impl View for DefaultComponent {
         fn render(&self) -> Html {
+            let name = self.name.clone();
+            let count = self.count.clone();
+            let active = self.active.clone();
+
             tmpl! {
                 <div>
-                    <span>Name: {self.name}</span>
-                    <span>Count: {self.count}</span>
-                    <span>Active: {self.active}</span>
+                    <span>Name: {name}</span>
+                    <span>Count: {count}</span>
+                    <span>Active: {active}</span>
                 </div>
             }
         }
@@ -358,10 +380,13 @@ fn test_component_from_attributes() {
 
     impl View for AttributeComponent {
         fn render(&self) -> Html {
+            let name = self.name.clone();
+            let count = self.count.clone();
+
             tmpl! {
                 <div>
-                    <span>{self.name}</span>
-                    <span>{self.count}</span>
+                    <span>{name}</span>
+                    <span>{count}</span>
                 </div>
             }
         }
@@ -389,8 +414,10 @@ fn test_component_with_signal() {
 
     impl View for SignalComponent {
         fn render(&self) -> Html {
+            let count = self.count.clone();
+
             tmpl! {
-                <div>Count: {self.count}</div>
+                <div>Count: {count}</div>
             }
         }
     }
@@ -463,9 +490,11 @@ fn test_component_with_signal_and_multiple_attributes() {
 
     impl View for SignalComponent {
         fn render(&self) -> Html {
+            let value = self.value.clone();
+
             tmpl! {
-                <h1>{self.value}</h1>
-                <input type="text" value={self.value} placeholder="Enter text" />
+                <h1>{value}</h1>
+                <input type="text" value={value} placeholder="Enter text" />
             }
         }
     }
