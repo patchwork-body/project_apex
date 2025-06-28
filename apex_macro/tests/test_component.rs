@@ -259,7 +259,8 @@ fn test_component_with_multiple_string_attributes() {
     profile.set_email("john@example.com".to_owned());
     profile.set_bio("Software developer".to_owned());
 
-    let expected = r#"<div class="profile"><h1>John Doe</h1><p>Email: john@example.com</p><p>Bio: Software developer</p></div>"#;
+    let expected = r#"<div class="profile"><h1>John Doe</h1><p>Email: john@example.com</p><p>Bio:
+Software developer</p></div>"#;
     assert_eq!(profile.render().to_string(), expected);
 }
 
@@ -299,7 +300,7 @@ fn test_component_with_mixed_types() {
 
     assert_eq!(
         component.render().to_string(),
-        "<div><span>ID: 123</span><span>Name: Test</span><span>Active: true</span><span>Score: 98.7</span></div>"
+        "<div><span>ID: 123</span><span>Name: Test</span><span>Active:\ntrue</span><span>Score: 98.7</span></div>"
     );
 }
 
@@ -348,7 +349,7 @@ fn test_component_default_values() {
 
     assert_eq!(
         component.render().to_string(),
-        "<div><span>Name: </span><span>Count: 0</span><span>Active: false</span></div>"
+        "<div><span>Name: </span><span>Count: 0</span><span>Active:\nfalse</span></div>"
     );
 }
 

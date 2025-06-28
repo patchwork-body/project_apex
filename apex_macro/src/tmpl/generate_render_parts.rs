@@ -202,33 +202,34 @@ pub(crate) fn generate_render_parts(
                                             .document()
                                             .unwrap()
                                             .get_element_by_id(#element_id) {
-                                            
+
                                             let initial_value = value_ref.get_value().to_string();
                                             let marker = format!("<!--APEX-DYNAMIC-{}-{}-->", #element_id, #text_node_index);
                                             let html = element.inner_html();
-                                            
+
                                             apex::web_sys::console::log_1(&format!("Processing DOM for element {}, looking for marker", #element_id).into());
-                                            
+
                                             if html.contains(&marker) {
                                                 // Parse and rebuild DOM with separate text nodes
                                                 let target_text = format!("{}{}", marker, initial_value);
                                                 if let Some(marker_pos) = html.find(&target_text) {
                                                     // Clear element and rebuild with proper text node structure
                                                     element.set_inner_html("");
-                                                    
+
                                                     let document = apex::web_sys::window().unwrap().document().unwrap();
-                                                    
+
                                                     // Add content before the marker as text node(s)
                                                     let before_marker = &html[..marker_pos];
                                                     if !before_marker.is_empty() {
-                                                                                                            let before_node = document.create_text_node(before_marker);
+                                                    let before_node = document.create_text_node(before_marker);
+
                                                     element.append_child(&before_node).unwrap();
                                                 }
-                                                
+
                                                 // Add the dynamic content as a separate text node
                                                 let dynamic_node = document.create_text_node(&initial_value);
                                                 element.append_child(&dynamic_node).unwrap();
-                                                
+
                                                 // Add content after the dynamic part
                                                 let after_pos = marker_pos + target_text.len();
                                                 if after_pos < html.len() {
@@ -238,14 +239,14 @@ pub(crate) fn generate_render_parts(
                                                         element.append_child(&after_node).unwrap();
                                                         }
                                                     }
-                                                    
+
                                                     apex::web_sys::console::log_1(&format!("Created {} text nodes for element {}", element.child_nodes().length(), #element_id).into());
                                                 }
                                             }
                                         }
-                                        
+
                                         // Register the signal with the correct text node index
-                                        value_ref.register_text_node(#element_id.to_string(), #text_node_index as u32);
+                                        value_ref.register_text_node(#element_id.to_string(), #text_node_index);
                                         apex::web_sys::console::log_1(&format!("Registered signal text node: {}[{}]", #element_id, #text_node_index).into());
                                     }
                                 }

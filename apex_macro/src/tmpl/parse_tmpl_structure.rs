@@ -178,6 +178,7 @@ pub(crate) fn parse_tmpl_structure(content: &str) -> Result<Vec<HtmlContent>> {
                             // Create a wrapper element if no current element context
                             let wrapper_id = format!("apex_wrapper_{element_counter}");
                             element_counter += 1;
+
                             crate::tmpl::DynamicVariableContext::TextNode {
                                 element_id: wrapper_id,
                                 text_node_index: 0,
@@ -188,6 +189,7 @@ pub(crate) fn parse_tmpl_structure(content: &str) -> Result<Vec<HtmlContent>> {
                             variable: var_content,
                             context,
                         });
+
                         text_node_counter += 1;
                     } else {
                         result.push(HtmlContent::StaticVariable(var_content));
@@ -609,10 +611,20 @@ mod tests {
         assert_eq!(result.len(), 1);
 
         match &result[0] {
-            HtmlContent::StaticVariable(variable) => {
+            HtmlContent::DynamicVariable { variable, context } => {
                 assert_eq!(variable, "self.title + \" suffix\"");
+                match context {
+                    crate::tmpl::DynamicVariableContext::TextNode {
+                        element_id,
+                        text_node_index,
+                    } => {
+                        assert!(element_id.starts_with("apex_wrapper_"));
+                        assert_eq!(*text_node_index, 0);
+                    }
+                    _ => panic!("Expected TextNode context"),
+                }
             }
-            _ => panic!("Expected StaticVariable for self expression with conservative detection"),
+            _ => panic!("Expected DynamicVariable for self expression with liberal detection"),
         }
     }
 
@@ -728,5 +740,53 @@ mod tests {
             })
             .count();
         assert_eq!(var_count, 1000);
+    }
+
+    #[test]
+    fn test_dynamic_variable_with_static_content_and_event_handler() {
+        let result = parse_tmpl_structure(
+            r#"
+            <h1>Awesome</h1>
+            <span>{counter}</span>
+            <button onclick={inc}>Increment</button>
+        "#,
+        )
+        .unwrap();
+
+        // The parser creates multiple elements for the complete structure
+        // including whitespace and text nodes, so let's count the significant elements
+        let elements: Vec<_> = result
+            .iter()
+            .filter(|item| match item {
+                HtmlContent::Element { .. } => true,
+                HtmlContent::DynamicVariable { .. } => true,
+                HtmlContent::StaticVariable(_) => true,
+                HtmlContent::Text(text) => !text.trim().is_empty(), // Only non-whitespace text
+                _ => false,
+            })
+            .collect();
+
+        // Check that we have h1, counter variable, button with event handler, and button text
+        let mut found_h1 = false;
+        let mut found_counter = false;
+        let mut found_button = false;
+        let mut found_button_text = false;
+
+        for item in &result {
+            match item {
+                HtmlContent::Element { tag, .. } if tag == "h1" => found_h1 = true,
+                HtmlContent::Element { tag, .. } if tag == "button" => found_button = true,
+                HtmlContent::DynamicVariable { variable, .. } if variable == "counter" => {
+                    found_counter = true
+                }
+                HtmlContent::Text(text) if text.trim() == "Increment" => found_button_text = true,
+                _ => {}
+            }
+        }
+
+        assert!(found_h1, "Should have h1 element");
+        assert!(found_counter, "Should have counter dynamic variable");
+        assert!(found_button, "Should have button element");
+        assert!(found_button_text, "Should have button text content");
     }
 }

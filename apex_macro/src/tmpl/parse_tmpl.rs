@@ -147,52 +147,36 @@ pub(crate) fn parse_tmpl(input: TokenStream) -> Result<proc_macro2::TokenStream>
     let parsed_content = parse_tmpl_structure(&input_str)?;
     let (html_parts, event_parts, updater_parts) = generate_render_parts(&parsed_content)?;
 
-    let html_generation = if html_parts.len() == 1 {
-        quote! {
-            apex::Html::new(#(#html_parts)*)
-        }
-    } else {
-        quote! {
+    let generation = quote! {
+        {
+            #[cfg(feature = "hydrate")]
+            {
+                // Defer registration until after DOM is updated
+                use apex::wasm_bindgen::prelude::*;
+                use apex::web_sys::*;
+
+                let callback = Closure::wrap(Box::new(move || {
+                    // Register event listeners after the HTML is inserted into the DOM
+                    #(#event_parts)*
+
+                    // Register signal updaters for reactive variables
+                    #(#updater_parts)*
+                }) as Box<dyn FnMut()>);
+
+                // Call the callback to register event listeners and signal updaters
+                let window = apex::web_sys::window().expect("no global `window` exists");
+                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    0
+                );
+
+                // Forget the callback to prevent it from being dropped prematurely
+                callback.forget();
+            }
+
             apex::Html::new([#(#html_parts),*].join(""))
         }
     };
 
-    // Generate code that conditionally includes event listeners and signal updaters based on render context
-    if event_parts.is_empty() && updater_parts.is_empty() {
-        Ok(html_generation)
-    } else {
-        Ok(quote! {
-            {
-                let html = #html_generation;
-
-                // Only register event listeners and signal updaters on the client side
-                #[cfg(feature = "hydrate")]
-                {
-                    // Defer registration until after DOM is updated
-                    use apex::wasm_bindgen::prelude::*;
-                    use apex::web_sys::*;
-
-                    let callback = Closure::wrap(Box::new(move || {
-                        // Register event listeners after the HTML is inserted into the DOM
-                        #(#event_parts)*
-
-                        // Register signal updaters for reactive variables
-                        #(#updater_parts)*
-                    }) as Box<dyn FnMut()>);
-
-                    // Use setTimeout with 0ms delay to run on next tick
-                    let window = apex::web_sys::window().expect("no global `window` exists");
-                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                        callback.as_ref().unchecked_ref(),
-                        0
-                    );
-
-                    // Keep the closure alive
-                    callback.forget();
-                }
-
-                html
-            }
-        })
-    }
+    Ok(generation)
 }

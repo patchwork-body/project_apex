@@ -9,7 +9,7 @@ thread_local! {
 
 struct SignalTracker {
     signal_elements: HashMap<u64, String>, // signal_id -> element_id
-    signal_text_nodes: HashMap<u64, (String, u32)>, // signal_id -> (element_id, text_node_index)
+    signal_text_nodes: HashMap<u64, (String, usize)>, // signal_id -> (element_id, text_node_index)
     next_signal_id: u64,
     signal_effects: HashMap<u64, Vec<u64>>, // signal_id -> effect_ids
 }
@@ -32,7 +32,7 @@ impl SignalTracker {
         &mut self,
         signal_id: u64,
         element_id: String,
-        text_node_index: u32,
+        text_node_index: usize,
     ) {
         self.signal_text_nodes
             .insert(signal_id, (element_id, text_node_index));
@@ -263,7 +263,7 @@ impl<T: Clone> Signal<T> {
     }
 
     /// Register this signal with a specific text node for automatic updates
-    pub fn register_text_node(&self, element_id: String, text_node_index: u32) {
+    pub fn register_text_node(&self, element_id: String, text_node_index: usize) {
         #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
         {
             SIGNAL_TRACKER.with(|tracker| {
@@ -392,7 +392,7 @@ pub trait Reactive {
     }
 
     /// Register this reactive value with a specific text node for automatic updates
-    fn register_text_node(&self, _element_id: String, _text_node_index: u32) {
+    fn register_text_node(&self, _element_id: String, _text_node_index: usize) {
         // Default implementation does nothing for non-reactive values
         #[cfg(not(all(feature = "hydrate", target_arch = "wasm32")))]
         {
@@ -437,7 +437,7 @@ impl<T: Clone> Reactive for Signal<T> {
         }
     }
 
-    fn register_text_node(&self, element_id: String, text_node_index: u32) {
+    fn register_text_node(&self, element_id: String, text_node_index: usize) {
         #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
         {
             Signal::register_text_node(self, element_id, text_node_index);
@@ -498,7 +498,7 @@ impl<T: Clone> Reactive for &Signal<T> {
         }
     }
 
-    fn register_text_node(&self, element_id: String, text_node_index: u32) {
+    fn register_text_node(&self, element_id: String, text_node_index: usize) {
         #[cfg(all(feature = "hydrate", target_arch = "wasm32"))]
         {
             Signal::register_text_node(*self, element_id, text_node_index);

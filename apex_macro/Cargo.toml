@@ -20,6 +20,8 @@ syn = { version = "^2", features = ["full", "extra-traits"] }
 prettyplease = "^0.2"
 apex = { path = "../apex", features = ["hydrate"] }
 wasm-bindgen-test = "^0.3"
+wasm-bindgen-futures = "^0.4"
+js-sys = "^0.3"
 
 [features]
 default = []

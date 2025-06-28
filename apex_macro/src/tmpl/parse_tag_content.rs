@@ -69,8 +69,10 @@ pub(crate) fn parse_tag_content(
     }
 
     // Parse tag name and attributes more carefully
-    let (tag_name, attributes_str) = parse_tag_name_and_attributes(&tag_str);
-    let self_closing = tag_str.trim_end().ends_with('/');
+    // Normalize whitespace within the tag to handle multiline tags
+    let normalized_tag_str = tag_str.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (tag_name, attributes_str) = parse_tag_name_and_attributes(&normalized_tag_str);
+    let self_closing = normalized_tag_str.trim_end().ends_with('/');
 
     // Check if this is a component tag (PascalCase or kebab-case)
     if is_component(&tag_name) {
