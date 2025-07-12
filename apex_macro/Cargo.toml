@@ -18,11 +18,7 @@ syn = { version = "^2", features = ["full", "extra-traits"] }
 
 [dev-dependencies]
 prettyplease = "^0.2"
-apex = { path = "../apex", features = ["hydrate"] }
+apex = { path = "../apex" }
 wasm-bindgen-test = "^0.3"
 wasm-bindgen-futures = "^0.4"
 js-sys = "^0.3"
-
-[features]
-default = []
-hydrate = ["apex/hydrate"]

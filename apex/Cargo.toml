@@ -7,6 +7,7 @@ edition = "2024"
 # WASM-compatible dependencies (available for all targets)
 wasm-bindgen = "^0.2"
 web-sys = { version = "^0.3", features = ["Window", "Document", "Element", "Event", "Text", "HtmlInputElement", "NodeList", "console", "HtmlElement"] }
+js-sys = "^0.3"
 bytes = "^1.10"
 futures-util = "^0.3"
 proc-macro2 = "^1.0"
@@ -28,7 +29,5 @@ tower = "^0.5"
 axum = { version = "^0.8" }
 
 [features]
-default = []
 wasm = ["dep:console_error_panic_hook"]
 console_error_panic_hook = ["dep:console_error_panic_hook"]
-hydrate = []

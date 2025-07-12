@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::Result;
 
-use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
+use crate::tmpl::{parse_tmpl_into_ast::*, render_ast::*};
 
 /// Parse HTML-like template syntax for the Apex framework.
 ///
@@ -144,39 +144,12 @@ use crate::tmpl::{generate_render_parts::*, parse_tmpl_structure::*};
 /// ```
 pub(crate) fn parse_tmpl(input: TokenStream) -> Result<proc_macro2::TokenStream> {
     let input_str = input.to_string();
-    let parsed_content = parse_tmpl_structure(&input_str)?;
-    let (html_parts, event_parts, updater_parts) = generate_render_parts(&parsed_content)?;
+    let parsed_content = parse_tmpl_into_ast(&input_str)?;
+    let render = render_ast(&parsed_content)?;
 
-    let generation = quote! {
-        {
-            #[cfg(feature = "hydrate")]
-            {
-                // Defer registration until after DOM is updated
-                use apex::wasm_bindgen::prelude::*;
-                use apex::web_sys::*;
-
-                let callback = Closure::wrap(Box::new(move || {
-                    // Register event listeners after the HTML is inserted into the DOM
-                    #(#event_parts)*
-
-                    // Register signal updaters for reactive variables
-                    #(#updater_parts)*
-                }) as Box<dyn FnMut()>);
-
-                // Call the callback to register event listeners and signal updaters
-                let window = apex::web_sys::window().expect("no global `window` exists");
-                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                    callback.as_ref().unchecked_ref(),
-                    0
-                );
-
-                // Forget the callback to prevent it from being dropped prematurely
-                callback.forget();
-            }
-
-            apex::Html::new([#(#html_parts),*].join(""))
-        }
-    };
-
-    Ok(generation)
+    Ok(quote! {
+        apex::Html::new(move |element: apex::web_sys::Element| {
+            #(#render)*
+        })
+    })
 }

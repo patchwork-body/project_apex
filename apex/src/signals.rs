@@ -591,14 +591,6 @@ impl Reactive for String {
     }
 }
 
-impl Reactive for crate::Html {
-    type Value = String;
-
-    fn get_value(&self) -> Self::Value {
-        self.as_str().to_string()
-    }
-}
-
 impl Reactive for &str {
     type Value = String;
 
@@ -781,18 +773,6 @@ impl Reactive for &f64 {
 
     fn get_value(&self) -> Self::Value {
         **self
-    }
-}
-
-impl Reactive for &crate::Html {
-    type Value = String;
-
-    fn get_value(&self) -> Self::Value {
-        self.as_str().to_string()
-    }
-
-    fn is_reactive(&self) -> bool {
-        false
     }
 }
 

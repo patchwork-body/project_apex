@@ -12,7 +12,6 @@ name = "server"
 
 [[bin]]
 name = "client"
-required-features = ["hydrate"]
 
 [dependencies]
 # Core dependencies (always included)
@@ -40,5 +39,4 @@ workspace = true
 
 [features]
 default = []
-hydrate = ["apex/hydrate"]
 wasm = ["dep:console_error_panic_hook"]

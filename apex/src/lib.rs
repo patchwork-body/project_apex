@@ -10,10 +10,6 @@ use std::pin::Pin;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 
-// Re-export the component macro for convenience
-pub use apex_macro::component;
-// Re-export the route macro for convenience
-pub use apex_macro::route;
 // Re-export the html macro for convenience
 pub use apex_macro::tmpl;
 
@@ -24,7 +20,10 @@ pub use bytes;
 pub use http;
 #[cfg(not(target_arch = "wasm32"))]
 pub use http_body_util;
+pub use js_sys;
 pub use wasm_bindgen;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 pub use web_sys;
 
 /// Signals module for reactive state management
@@ -41,60 +40,109 @@ pub trait View {
     fn render(&self) -> Html;
 }
 
+type HtmlCallback = Closure<dyn Fn(web_sys::Element)>;
+
 /// Represents rendered HTML content
 ///
 /// This type wraps HTML strings and provides a safe way to handle HTML content
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct Html {
-    content: String,
+    callback: HtmlCallback,
 }
 
 impl Html {
-    /// Create a new Html instance from content
-    pub fn new(content: impl Into<String>) -> Self {
+    /// Create Html with a callback function for dynamic content generation
+    pub fn new<F>(callback: F) -> Self
+    where
+        F: Fn(web_sys::Element) + 'static,
+    {
         Html {
-            content: content.into(),
+            callback: Closure::wrap(Box::new(callback) as Box<dyn Fn(web_sys::Element)>),
         }
     }
 
-    /// Create from string (convenience method for macros)
-    pub fn from_string(content: String) -> Self {
-        Html { content }
+    /// Mount the HTML into a DOM element
+    ///
+    /// # Arguments
+    /// * `target` - Optional CSS selector for the target element (defaults to "body")
+    ///
+    /// # Returns
+    /// * `Result<(), wasm_bindgen::JsValue>` - Ok if successful, Err with JS error if failed
+    pub fn mount(&self, target: Option<&str>) -> Result<(), wasm_bindgen::JsValue> {
+        use web_sys::{Element, window};
+
+        let window = window().ok_or("No global window object")?;
+        let document = window.document().ok_or("No document object")?;
+
+        let target_selector = target.unwrap_or("body");
+        let target_element: Element = if target_selector == "body" {
+            document.body().ok_or("No body element")?.into()
+        } else {
+            document
+                .query_selector(target_selector)?
+                .ok_or_else(|| format!("Target element '{target_selector}' not found"))?
+        };
+
+        let inner_html = target_element.inner_html();
+
+        web_sys::console::log_1(&format!("[APEX] target element {inner_html:?}").into());
+
+        let func: &js_sys::Function = self.callback.as_ref().unchecked_ref();
+        func.call1(&wasm_bindgen::JsValue::NULL, &target_element.clone().into())?;
+
+        let inner_html = target_element.inner_html();
+
+        web_sys::console::log_1(&format!("[APEX] target element {inner_html:?}").into());
+
+        Ok(())
     }
 
-    /// Create an empty Html instance
-    pub fn empty() -> Self {
-        Html {
-            content: String::new(),
-        }
-    }
-
-    /// Get the inner HTML content as a string
-    pub fn into_string(self) -> String {
-        self.content
-    }
-
-    /// Get a reference to the inner HTML content
-    pub fn as_str(&self) -> &str {
-        &self.content
+    /// Update the mounted HTML by re-executing the callback
+    /// This is useful for reactive updates when state changes
+    pub fn update(&self, target: Option<&str>) -> Result<(), wasm_bindgen::JsValue> {
+        self.mount(target)
     }
 }
 
 impl From<String> for Html {
     fn from(content: String) -> Self {
-        Self::new(content)
+        Html {
+            callback: Closure::new(Box::new(move |element: web_sys::Element| {
+                element.set_inner_html(&content);
+            })),
+        }
     }
 }
 
 impl From<&str> for Html {
     fn from(content: &str) -> Self {
-        Self::new(content)
+        let owned_content = content.to_string();
+        Html {
+            callback: Closure::new(Box::new(move |element: web_sys::Element| {
+                element.set_inner_html(&owned_content);
+            })),
+        }
     }
 }
 
 impl std::fmt::Display for Html {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.content)
+        use web_sys::window;
+
+        if let Some(window) = window() {
+            if let Some(document) = window.document() {
+                if let Ok(temp_element) = document.create_element("div") {
+                    let func: &js_sys::Function = self.callback.as_ref().unchecked_ref();
+                    if func
+                        .call1(&wasm_bindgen::JsValue::NULL, &temp_element.clone().into())
+                        .is_ok()
+                    {
+                        return write!(f, "{}", temp_element.inner_html());
+                    }
+                }
+            }
+        }
+        write!(f, "")
     }
 }
 
@@ -401,6 +449,22 @@ impl Apex {
             static_dir: None,
         }
     }
+
+    /// Hydrate the client-side application with a component
+    pub fn hydrate<T: View>(self, component: T) -> Result<(), wasm_bindgen::JsValue> {
+        use web_sys::window;
+
+        let window = window().ok_or("No global window object")?;
+        let document = window.document().ok_or("No document object")?;
+
+        let body = document.body().ok_or("No body element")?;
+
+        let html = component.render();
+        let func: &js_sys::Function = html.callback.as_ref().unchecked_ref();
+        func.call1(&wasm_bindgen::JsValue::NULL, &body.into())?;
+
+        Ok(())
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -480,31 +544,9 @@ impl Apex {
                     )
                     .await
                 {
-                    eprintln!("Error serving connection: {:?}", err);
+                    eprintln!("Error serving connection: {err:?}");
                 }
             });
-        }
-    }
-}
-
-// Client-side code (only available when 'hydrate' feature is enabled)
-#[cfg(feature = "hydrate")]
-mod client {
-    use super::*;
-    use web_sys::window;
-
-    impl Apex {
-        /// Hydrate the client-side application with a component
-        pub fn hydrate<T: View>(self, component: T) -> Result<(), wasm_bindgen::JsValue> {
-            let window = window().ok_or("No global window object")?;
-            let document = window.document().ok_or("No document object")?;
-
-            let body = document.body().ok_or("No body element")?;
-
-            let html = component.render();
-            body.set_inner_html(html.as_str());
-
-            Ok(())
         }
     }
 }
