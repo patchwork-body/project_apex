@@ -86,3 +86,45 @@ fn test_tmpl_renders_plain_text_with_two_interpolations() {
 
     assert_eq!(html, "Hello John, and welcome Doe!");
 }
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_empty_div() {
+    let tmpl = tmpl! { <div></div> };
+    let html = mount_tmpl(tmpl);
+
+    assert_eq!(html, "<div></div>");
+}
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_div_with_text() {
+    let tmpl = tmpl! { <div>Hello, world!</div> };
+    let html = mount_tmpl(tmpl);
+
+    assert_eq!(html, "<div>Hello, world!</div>");
+}
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_div_with_text_and_interpolation() {
+    let name = "world";
+    let tmpl = tmpl! { <div>Hello, {name}!</div> };
+    let html = mount_tmpl(tmpl);
+
+    assert_eq!(html, "<div>Hello, world!</div>");
+}
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_div_with_attrs() {
+    let tmpl = tmpl! { <div class="container">Hello, world!</div> };
+    let html = mount_tmpl(tmpl);
+
+    assert_eq!(html, "<div class=\"container\">Hello, world!</div>");
+}
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_div_with_dynamic_attrs() {
+    let class = "container";
+    let tmpl = tmpl! { <div class={class}>Hello, world!</div> };
+    let html = mount_tmpl(tmpl);
+
+    assert_eq!(html, "<div class=\"container\">Hello, world!</div>");
+}

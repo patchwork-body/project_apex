@@ -39,10 +39,12 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
 
     // Parse tag name
     let mut tag_name = String::new();
+
     while let Some(&ch) = chars.peek() {
         if ch == ' ' || ch == '>' || ch == '/' {
             break;
         }
+
         tag_name.push(chars.next().unwrap());
     }
 
@@ -61,10 +63,12 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
 
         // Parse attribute name
         let mut attr_name = String::new();
+
         while let Some(&ch) = chars.peek() {
             if ch == '=' || ch == ' ' || ch == '>' || ch == '/' {
                 break;
             }
+
             attr_name.push(chars.next().unwrap());
         }
 
@@ -81,11 +85,10 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                 chars.next();
             }
 
-            // Parse attribute value
-            let attr_value = if chars.peek() == Some(&'"') {
-                // Quoted string
+            if chars.peek() == Some(&'"') {
                 chars.next(); // consume opening quote
                 let mut value = String::new();
+
                 while let Some(&ch) = chars.peek() {
                     if ch == '"' {
                         chars.next(); // consume closing quote
@@ -93,12 +96,16 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                     }
                     value.push(chars.next().unwrap());
                 }
-                value
+
+                attributes.insert(attr_name, ComponentAttribute::Literal(value));
+                continue;
             } else if chars.peek() == Some(&'{') {
                 // Expression in braces
                 chars.next(); // consume '{'
+
                 let mut value = String::new();
                 let mut brace_depth = 1;
+
                 while let Some(&ch) = chars.peek() {
                     if ch == '{' {
                         brace_depth += 1;
@@ -111,25 +118,35 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                     }
                     value.push(chars.next().unwrap());
                 }
-                value
+
+                if attr_name.starts_with("on") {
+                    attributes.insert(
+                        attr_name,
+                        ComponentAttribute::EventHandler(value.trim().to_owned()),
+                    );
+                } else {
+                    attributes.insert(
+                        attr_name,
+                        ComponentAttribute::Expression(value.trim().to_owned()),
+                    );
+                }
+
+                continue;
             } else {
                 // Unquoted value
                 let mut value = String::new();
+
                 while let Some(&ch) = chars.peek() {
                     if ch == ' ' || ch == '>' || ch == '/' {
                         break;
                     }
+
                     value.push(chars.next().unwrap());
                 }
-                value
-            };
 
-            // Check if this is an event listener
-            if attr_name.starts_with("on") {
-                attributes.insert(attr_name, ComponentAttribute::EventHandler(attr_value));
-            } else {
-                attributes.insert(attr_name, ComponentAttribute::Literal(attr_value));
-            }
+                attributes.insert(attr_name, ComponentAttribute::Literal(value));
+                continue;
+            };
         }
 
         // Skip whitespace
@@ -159,14 +176,17 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                 // Look ahead to see if this is a closing tag
                 let mut lookahead = chars.clone();
                 lookahead.next(); // consume '<'
+
                 if lookahead.peek() == Some(&'/') {
                     // This is a closing tag
                     lookahead.next(); // consume '/'
                     let mut closing_tag = String::new();
+
                     while let Some(&ch) = lookahead.peek() {
                         if ch == '>' {
                             break;
                         }
+
                         closing_tag.push(lookahead.next().unwrap());
                     }
 
@@ -174,12 +194,15 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                         // This is our closing tag, consume it
                         chars.next(); // '<'
                         chars.next(); // '/'
+
                         while chars.peek() != Some(&'>') && chars.peek().is_some() {
                             chars.next();
                         }
+
                         if chars.peek() == Some(&'>') {
                             chars.next(); // '>'
                         }
+
                         break;
                     }
                 }
@@ -393,6 +416,27 @@ mod tests {
                     self_closing: false,
                     children: vec![TmplAst::Text("Hello, world!".to_owned())],
                 }],
+            }
+        );
+    }
+
+    #[test]
+    fn test_dynamic_attrs() {
+        let input = "<div class={class}></div>";
+        let ast = parse_tmpl_into_ast(input).unwrap();
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::from([(
+                    "class".to_owned(),
+                    ComponentAttribute::Expression("class".to_owned())
+                )]),
+                self_closing: false,
+                children: vec![],
             }
         );
     }
