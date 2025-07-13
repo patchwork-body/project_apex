@@ -26,9 +26,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 pub use web_sys;
 
-/// Signals module for reactive state management
-pub mod signals;
-pub use signals::{Effect, Reactive, Signal, render_with_effect};
+pub mod signal;
 
 /// Trait that defines the view layer for components
 ///

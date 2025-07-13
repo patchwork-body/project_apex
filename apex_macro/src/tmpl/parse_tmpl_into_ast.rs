@@ -3,6 +3,23 @@ use syn::Result;
 
 use crate::tmpl::{ComponentAttribute, TmplAst};
 
+/// Detects if an expression contains signal usage (variables prefixed with $ sign)
+fn is_signal_expression(expr: &str) -> bool {
+    // Check for signal patterns like $variable
+    expr.contains('$')
+}
+
+/// Splits an expression into multiple parts, separating signals from literals
+fn split_expression_into_parts(expr: &str) -> Vec<TmplAst> {
+    // If the expression contains signals, treat the entire expression as a single signal
+    if is_signal_expression(expr) {
+        return vec![TmplAst::Signal(expr.to_owned())];
+    }
+
+    // If no signals, treat as regular expression
+    vec![TmplAst::Expression(expr.to_owned())]
+}
+
 pub(crate) fn parse_tmpl_into_ast(input: &str) -> Result<Vec<TmplAst>> {
     let mut ast = Vec::new();
     let mut chars = input.chars().peekable();
@@ -25,8 +42,9 @@ pub(crate) fn parse_tmpl_into_ast(input: &str) -> Result<Vec<TmplAst>> {
             if let Some(element) = parse_element(&mut chars)? {
                 ast.push(element);
             }
-        } else if let Some(content) = parse_text_or_expression(&mut chars)? {
-            ast.push(content);
+        } else {
+            let content = parse_text_or_expression(&mut chars)?;
+            ast.extend(content);
         }
     }
 
@@ -213,9 +231,8 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                 }
             } else {
                 // Parse text or expression
-                if let Some(child) = parse_text_or_expression(chars)? {
-                    children.push(child);
-                }
+                let parsed_children = parse_text_or_expression(chars)?;
+                children.extend(parsed_children);
             }
         }
     }
@@ -228,7 +245,7 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
     }))
 }
 
-fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<TmplAst>> {
+fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Vec<TmplAst>> {
     let mut content = String::new();
 
     while let Some(&ch) = chars.peek() {
@@ -237,7 +254,7 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Resul
         } else if ch == '{' {
             // If we have accumulated text, return it first
             if !content.is_empty() {
-                return Ok(Some(TmplAst::Text(content)));
+                return Ok(vec![TmplAst::Text(content)]);
             }
 
             // Parse expression
@@ -258,16 +275,20 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Resul
                 expr.push(chars.next().unwrap());
             }
 
-            return Ok(Some(TmplAst::Expression(expr)));
+            return Ok(if is_signal_expression(&expr) {
+                split_expression_into_parts(&expr)
+            } else {
+                vec![TmplAst::Expression(expr)]
+            });
         } else {
             content.push(chars.next().unwrap());
         }
     }
 
     if content.is_empty() {
-        Ok(None)
+        Ok(vec![])
     } else {
-        Ok(Some(TmplAst::Text(content)))
+        Ok(vec![TmplAst::Text(content)])
     }
 }
 
@@ -437,6 +458,107 @@ mod tests {
                 )]),
                 self_closing: false,
                 children: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn test_signal_expression() {
+        let input = "<div>Hello, {$name}!</div>";
+        let ast = parse_tmpl_into_ast(input).unwrap();
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                self_closing: false,
+                children: vec![
+                    TmplAst::Text("Hello, ".to_owned()),
+                    TmplAst::Signal("$name".to_owned()),
+                    TmplAst::Text("!".to_owned()),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_mixed_expressions() {
+        let input = "<div>{$count} items: {message}</div>";
+        let ast = parse_tmpl_into_ast(input).unwrap();
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                self_closing: false,
+                children: vec![
+                    TmplAst::Signal("$count".to_owned()),
+                    TmplAst::Text(" items: ".to_owned()),
+                    TmplAst::Expression("message".to_owned()),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_complex_signal_expression() {
+        let input = "<div>Counter: {1 + $counter - 2 + $another_counter}</div>";
+        let ast = parse_tmpl_into_ast(input).unwrap();
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                self_closing: false,
+                children: vec![
+                    TmplAst::Text("Counter: ".to_owned()),
+                    TmplAst::Signal("1 + $counter - 2 + $another_counter".to_owned()),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_signal_expression_with_other_literals() {
+        let input = "<div>{$count + 1}</div>";
+        let ast = parse_tmpl_into_ast(input).unwrap();
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                self_closing: false,
+                children: vec![TmplAst::Signal("$count + 1".to_owned()),],
+            }
+        );
+    }
+
+    #[test]
+    fn test_dollar_prefixed_literal_will_not_ba_parsed_as_signals() {
+        let input = "<div>$count</div>";
+        let ast = parse_tmpl_into_ast(input).unwrap();
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                self_closing: false,
+                children: vec![TmplAst::Text("$count".to_owned())],
             }
         );
     }

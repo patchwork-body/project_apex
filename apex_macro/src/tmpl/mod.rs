@@ -16,6 +16,7 @@ pub(crate) enum ComponentAttribute {
 pub(crate) enum TmplAst {
     Text(String),
     Expression(String),
+    Signal(String),
     EventListener(String),
     Element {
         tag: String,
