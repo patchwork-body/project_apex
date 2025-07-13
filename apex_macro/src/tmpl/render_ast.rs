@@ -153,39 +153,40 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
 
                 if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(&processed_expr) {
                     result.push(quote! {
-                            use apex::web_sys::*;
-                            use apex::effect;
+                        use apex::web_sys::*;
+                        use apex::*;
 
-                            let window = window().expect("no global `window` exists");
-                            let document = window.document().expect("should have a document on window");
+                        let text_node = window().expect("no global `window` exists")
+                            .document().expect("should have a document on window")
+                            .create_text_node("");
 
-                            #(#signal_clones)*
+                        let _ = element.append_child(&text_node);
 
-                            // Create initial text node with current value
+                        #(#signal_clones)*
+
+                        // Create initial text node with current value
+                        let expression_value = #expr_tokens;
+                        let text_node = document.create_text_node(&expression_value.to_string());
+                        let _ = element.append_child(&text_node);
+
+                        // Clone text node for the effect
+                        let text_node_clone = text_node.clone();
+
+                        // Set up reactive effect for updates
+                        effect!({
                             let expression_value = #expr_tokens;
-                            let text_node = document.create_text_node(&expression_value.to_string());
-                            let _ = element.append_child(&text_node);
-
-                            // Clone text node for the effect
-                            let text_node_clone = text_node.clone();
-
-                            // Set up reactive effect for updates
-                            effect!({
-                                let expression_value = #expr_tokens;
-                                text_node_clone.set_data(&expression_value.to_string());
-                            });
+                            text_node_clone.set_data(&expression_value.to_string());
+                        });
                     });
                 } else {
                     // Fallback for invalid expressions
                     result.push(quote! {
-                        {
-                            use apex::web_sys::*;
+                        use apex::web_sys::*;
 
-                            let window = apex::web_sys::window().expect("no global `window` exists");
-                            let document = window.document().expect("should have a document on window");
-                            let text_node = document.create_text_node("");
-                            let _ = element.append_child(&text_node);
-                        }
+                        let window = apex::web_sys::window().expect("no global `window` exists");
+                        let document = window.document().expect("should have a document on window");
+                        let text_node = document.create_text_node("");
+                        let _ = element.append_child(&text_node);
                     });
                 }
             }

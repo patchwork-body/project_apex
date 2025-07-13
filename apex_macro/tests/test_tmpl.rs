@@ -192,3 +192,25 @@ fn test_tmpl_renders_signal() {
 
     assert_eq!(html, "<div>1</div>");
 }
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_signal_with_multiple_signals() {
+    let counter1 = signal!(0);
+    let counter2 = signal!(0);
+    let counter1_clone = counter1.clone();
+    let counter2_clone = counter2.clone();
+    let tmpl = tmpl! { <div>{$counter1} + {$counter2} = {($counter1 + $counter2)}</div> };
+    let get_html = mount_tmpl(tmpl);
+
+    assert_eq!(get_html(), "<div>0 + 0 = 0</div>");
+
+    counter1_clone.set(1);
+    let html = get_html();
+
+    assert_eq!(html, "<div>1 + 0 = 1</div>");
+
+    counter2_clone.set(1);
+    let html = get_html();
+
+    assert_eq!(html, "<div>1 + 1 = 2</div>");
+}
