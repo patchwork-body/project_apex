@@ -52,6 +52,7 @@ dependencies = [
  "syn",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

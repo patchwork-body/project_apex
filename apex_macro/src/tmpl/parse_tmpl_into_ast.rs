@@ -140,7 +140,12 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                 if attr_name.starts_with("on") {
                     attributes.insert(
                         attr_name,
-                        ComponentAttribute::EventHandler(value.trim().to_owned()),
+                        ComponentAttribute::EventListener(value.trim().to_owned()),
+                    );
+                } else if is_signal_expression(&value) {
+                    attributes.insert(
+                        attr_name,
+                        ComponentAttribute::Signal(value.trim().to_owned()),
                     );
                 } else {
                     attributes.insert(
@@ -377,7 +382,7 @@ mod tests {
                     ),
                     (
                         "onclick".to_owned(),
-                        ComponentAttribute::EventHandler("handleClick".to_owned())
+                        ComponentAttribute::EventListener("handleClick".to_owned())
                     )
                 ]),
                 self_closing: false,

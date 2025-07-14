@@ -1,1 +1,0 @@
-fn main() { let expr = "todos.get().iter().enumerate().map(|(i, todo)| { format!(\"<div class=\\"todo-item\\"><span>{}</span></div>\", todo) }).collect::<String>()"; println!("Expression: {}", expr); }

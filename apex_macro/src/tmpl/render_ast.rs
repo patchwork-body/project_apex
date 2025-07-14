@@ -1,4 +1,3 @@
-use crate::tmpl::generate_event_listeners::*;
 use crate::tmpl::{ComponentAttribute, TmplAst};
 use quote::quote;
 use syn::Result;
@@ -10,26 +9,29 @@ fn find_signals(expr: &str) -> Vec<String> {
     while let Some(ch) = chars.next() {
         if ch == '$' {
             let mut signal = String::new();
-            while let Some(ch) = chars.next() {
+
+            for ch in chars.by_ref() {
                 if ch.is_alphanumeric() || ch == '_' {
                     signal.push(ch);
                 } else {
                     break;
                 }
             }
+
             signals.push(signal);
         }
     }
 
     signals
+        .into_iter()
+        .filter(|signal| !signal.is_empty())
+        .collect()
 }
 
 pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenStream>> {
     let mut result = Vec::new();
 
     for item in content {
-        println!("item: {item:?}");
-
         match item {
             TmplAst::Text(text) => {
                 // Skip whitespace-only text nodes
@@ -94,7 +96,92 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                                 None
                             }
                         },
-                        ComponentAttribute::EventHandler(_) => None,
+                        ComponentAttribute::Signal(expr) => {
+                            let signals = find_signals(expr);
+
+                            let signal_clones = signals
+                                .iter()
+                                .map(|signal| {
+                                    let signal_ident = syn::Ident::new(signal, proc_macro2::Span::call_site());
+                                    let clone_ident = syn::Ident::new(
+                                        &format!("{signal}_clone"),
+                                        proc_macro2::Span::call_site(),
+                                    );
+                                    quote! {
+                                        let #clone_ident = #signal_ident.clone();
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+
+                            let mut processed_expr = expr.clone();
+
+                            for signal in &signals {
+                                let signal_pattern = format!("${signal}");
+                                let replacement = format!("{signal}_clone.get()");
+                                processed_expr = processed_expr.replace(&signal_pattern, &replacement);
+                            }
+
+                            if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(&processed_expr) {
+                                Some(quote! {
+                                    {
+                                        #(#signal_clones)*
+                                        let attr_value = #expr_tokens;
+                                        new_element.set_attribute(#k, &attr_value.to_string()).expect("Failed to set signal attribute");
+                                    }
+
+                                    {
+                                        let element_clone = new_element.clone();
+                                        let attr_name = #k;
+                                        #(#signal_clones)*
+
+                                        apex::effect!({
+                                            let attr_value = #expr_tokens;
+                                            let _ = element_clone.set_attribute(attr_name, &attr_value.to_string());
+                                        });
+                                    }
+                                })
+                            } else {
+                                None
+                            }
+                        },
+                        ComponentAttribute::EventListener(_) => None,
+                    }
+                }).collect::<Vec<_>>();
+
+                let event_listeners = attributes.iter().filter_map(|(k, v)| {
+                    match v {
+                        ComponentAttribute::EventListener(handler) => {
+                            // Extract event name from attribute (e.g., "onclick" -> "click")
+                            let event_name = if k.starts_with("on") && k.len() > 2 {
+                                &k[2..] // Remove "on" prefix
+                            } else {
+                                return None; // Skip invalid event names
+                            };
+
+                            if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
+                                Some(quote! {
+                                    {
+                                        use apex::wasm_bindgen::prelude::*;
+                                        use apex::web_sys::*;
+
+                                        let handler_fn = (#handler_tokens).clone();
+                                        let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                                            handler_fn();
+                                        }) as Box<dyn FnMut(_)>);
+
+                                        let _ = new_element.add_event_listener_with_callback(
+                                            #event_name,
+                                            closure.as_ref().unchecked_ref()
+                                        );
+
+                                        closure.forget(); // Prevent cleanup
+                                    }
+                                })
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
                     }
                 }).collect::<Vec<_>>();
 
@@ -111,6 +198,9 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                         #(#attr_setters)*
 
                         let _ = element.append_child(&new_element);
+
+                        #(#event_listeners)*
+
                         {
                             let element = &new_element;
                             #(#child_fns)*
@@ -173,7 +263,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                         let text_node_clone = text_node.clone();
 
                         // Set up reactive effect for updates
-                        effect!({
+                        apex::effect!({
                             let expression_value = #expr_tokens;
                             text_node_clone.set_data(&expression_value.to_string());
                         });
@@ -226,11 +316,6 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 //         });
                 //     }
                 // }
-            }
-
-            TmplAst::EventListener(_) => {
-                // Event listeners are handled within elements
-                // This case shouldn't occur in normal parsing
             }
         }
     }

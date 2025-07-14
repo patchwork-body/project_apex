@@ -32,7 +32,7 @@ pub(crate) fn generate_event_listeners(
             attr_name, attr_value
         );
 
-        if let ComponentAttribute::EventHandler(handler) = attr_value {
+        if let ComponentAttribute::EventListener(handler) = attr_value {
             println!("[DEBUG] Found event handler: {} = {}", attr_name, handler);
 
             // Extract event name from attribute (e.g., "onclick" -> "click")
@@ -192,7 +192,7 @@ mod tests {
         let mut attributes = HashMap::new();
         attributes.insert(
             "onclick".to_owned(),
-            ComponentAttribute::EventHandler("handle_click".to_owned()),
+            ComponentAttribute::EventListener("handle_click".to_owned()),
         );
 
         let listeners = generate_event_listeners("test_id", &attributes).unwrap();
@@ -209,11 +209,11 @@ mod tests {
         let mut attributes = HashMap::new();
         attributes.insert(
             "onclick".to_owned(),
-            ComponentAttribute::EventHandler("handle_click".to_owned()),
+            ComponentAttribute::EventListener("handle_click".to_owned()),
         );
         attributes.insert(
             "onmouseover".to_owned(),
-            ComponentAttribute::EventHandler("handle_mouseover".to_owned()),
+            ComponentAttribute::EventListener("handle_mouseover".to_owned()),
         );
 
         let listeners = generate_event_listeners("test_id", &attributes).unwrap();
@@ -229,7 +229,7 @@ mod tests {
         );
         attributes.insert(
             "onclick".to_owned(),
-            ComponentAttribute::EventHandler("handle_click".to_owned()),
+            ComponentAttribute::EventListener("handle_click".to_owned()),
         );
 
         let listeners = generate_event_listeners("test_id", &attributes).unwrap_or_default();

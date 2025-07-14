@@ -290,4 +290,16 @@ mod tests {
         counter2.update(|prev| prev - 5); // 25 - 5 = 20
         assert_eq!(sum.get(), 50); // 30 + 20
     }
+
+    #[test]
+    fn string_signal_get_set_update() {
+        let s = signal!("Hello, world!".to_owned());
+        assert_eq!(s.get(), "Hello, world!".to_owned());
+
+        s.set("Hello, world! 2".to_owned());
+        assert_eq!(s.get(), "Hello, world! 2".to_owned());
+
+        s.update(|prev| format!("{} 3", prev));
+        assert_eq!(s.get(), "Hello, world! 2 3".to_owned());
+    }
 }

@@ -9,7 +9,8 @@ pub(crate) use parse_tmpl::*;
 pub(crate) enum ComponentAttribute {
     Literal(String),
     Expression(String),
-    EventHandler(String),
+    Signal(String),
+    EventListener(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17,7 +18,6 @@ pub(crate) enum TmplAst {
     Text(String),
     Expression(String),
     Signal(String),
-    EventListener(String),
     Element {
         tag: String,
         attributes: std::collections::HashMap<String, ComponentAttribute>,
