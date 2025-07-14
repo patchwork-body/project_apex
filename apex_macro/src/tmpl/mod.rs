@@ -1,4 +1,3 @@
-mod generate_event_listeners;
 mod parse_tmpl;
 mod parse_tmpl_into_ast;
 mod render_ast;

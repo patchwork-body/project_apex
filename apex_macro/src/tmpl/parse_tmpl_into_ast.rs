@@ -9,6 +9,11 @@ fn is_signal_expression(expr: &str) -> bool {
     expr.contains('$')
 }
 
+/// Detects if a tag name is a component (starts with uppercase letter)
+fn is_component(tag_name: &str) -> bool {
+    tag_name.chars().next().is_some_and(|c| c.is_uppercase())
+}
+
 /// Splits an expression into multiple parts, separating signals from literals
 fn split_expression_into_parts(expr: &str) -> Vec<TmplAst> {
     // If the expression contains signals, treat the entire expression as a single signal
@@ -242,11 +247,18 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
         }
     }
 
-    Ok(Some(TmplAst::Element {
-        tag: tag_name,
-        attributes,
-        self_closing,
-        children,
+    Ok(Some(if is_component(&tag_name) {
+        TmplAst::Component {
+            name: tag_name,
+            children,
+        }
+    } else {
+        TmplAst::Element {
+            tag: tag_name,
+            attributes,
+            self_closing,
+            children,
+        }
     }))
 }
 
@@ -564,6 +576,22 @@ mod tests {
                 attributes: HashMap::new(),
                 self_closing: false,
                 children: vec![TmplAst::Text("$count".to_owned())],
+            }
+        );
+    }
+
+    #[test]
+    fn test_component() {
+        let input = "<HelloWorld />";
+        let ast = parse_tmpl_into_ast(input).unwrap();
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Component {
+                name: "HelloWorld".to_owned(),
+                children: vec![],
             }
         );
     }

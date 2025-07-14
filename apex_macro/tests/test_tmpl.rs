@@ -36,7 +36,7 @@ fn mount_tmpl(tmpl: Html) -> (String, impl Fn() -> String) {
 
     let _ = body.append_child(&target);
 
-    tmpl.mount(Some(&format!("#{id}"))).unwrap();
+    tmpl.mount(Some(&target)).unwrap();
 
     (id, move || target.inner_html())
 }
@@ -285,4 +285,23 @@ fn test_tmpl_renders_element_with_event_listener_with_signal() {
 
     assert_eq!(counter_clone.get(), 1);
     assert_eq!(get_html(), "<button>Inc 1</button>");
+}
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_component() {
+    struct HelloWorld;
+
+    impl HelloWorld {
+        fn render(_: &Self) -> Html {
+            tmpl! { <div>Hello, world!</div> }
+        }
+    }
+
+    let tmpl = tmpl! {
+        <HelloWorld />
+    };
+
+    let (id, get_html) = mount_tmpl(tmpl);
+
+    assert_eq!(get_html(), "<div>Hello, world!</div>");
 }

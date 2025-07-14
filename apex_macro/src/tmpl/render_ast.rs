@@ -281,41 +281,17 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 }
             }
 
-            TmplAst::Component { name, children } => {
-                // // Handle custom components - for now, treat as div with class
-                // element_counter += 1;
-                // let element_id = format!("apex_component_{element_counter}");
-                // let component_name = name.clone();
+            TmplAst::Component { name, children: _ } => {
+                let component_name = syn::Ident::new(name, proc_macro2::Span::call_site());
 
-                // result.push(quote! {
-                //     {
-                //         use apex::web_sys::*;
-                //         let window = apex::web_sys::window().expect("no global `window` exists");
-                //         let document = window.document().expect("should have a document on window");
-                //         let component_element = document.create_element("div").expect("Failed to create component element");
-                //         component_element.set_id(#element_id);
-                //         let _ = component_element.set_attribute("class", #component_name);
-                //         let _ = element.append_child(&component_element);
-                //     }
-                // });
+                result.push(quote! {
+                    {
+                        let component_instance = #component_name;
+                        let component_html = #component_name::render(&component_instance);
 
-                // // Process component children
-                // if !children.is_empty() {
-                //     let child_functions = render_ast(children)?;
-                //     for child_fn in child_functions {
-                //         result.push(quote! {
-                //             {
-                //                 use apex::web_sys::*;
-                //                 let window = apex::web_sys::window().expect("no global `window` exists");
-                //                 let document = window.document().expect("should have a document on window");
-                //                 if let Some(component_element) = document.get_element_by_id(#element_id) {
-                //                     let element = &component_element;
-                //                     #child_fn
-                //                 }
-                //             }
-                //         });
-                //     }
-                // }
+                        component_html.mount(Some(&element));
+                    }
+                });
             }
         }
     }

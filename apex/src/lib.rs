@@ -62,23 +62,19 @@ impl Html {
     /// Mount the HTML into a DOM element
     ///
     /// # Arguments
-    /// * `target` - Optional CSS selector for the target element (defaults to "body")
+    /// * `target` - Optional target element (defaults to document body)
     ///
     /// # Returns
     /// * `Result<(), wasm_bindgen::JsValue>` - Ok if successful, Err with JS error if failed
-    pub fn mount(&self, target: Option<&str>) -> Result<(), wasm_bindgen::JsValue> {
+    pub fn mount(&self, target: Option<&web_sys::Element>) -> Result<(), wasm_bindgen::JsValue> {
         use web_sys::{Element, window};
 
-        let window = window().ok_or("No global window object")?;
-        let document = window.document().ok_or("No document object")?;
-
-        let target_selector = target.unwrap_or("body");
-        let target_element: Element = if target_selector == "body" {
-            document.body().ok_or("No body element")?.into()
+        let target_element: Element = if let Some(element) = target {
+            element.clone()
         } else {
-            document
-                .query_selector(target_selector)?
-                .ok_or_else(|| format!("Target element '{target_selector}' not found"))?
+            let window = window().ok_or("No global window object")?;
+            let document = window.document().ok_or("No document object")?;
+            document.body().ok_or("No body element")?.into()
         };
 
         let inner_html = target_element.inner_html();
@@ -97,7 +93,7 @@ impl Html {
 
     /// Update the mounted HTML by re-executing the callback
     /// This is useful for reactive updates when state changes
-    pub fn update(&self, target: Option<&str>) -> Result<(), wasm_bindgen::JsValue> {
+    pub fn update(&self, target: Option<&web_sys::Element>) -> Result<(), wasm_bindgen::JsValue> {
         self.mount(target)
     }
 }
