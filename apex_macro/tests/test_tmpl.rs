@@ -305,3 +305,24 @@ fn test_tmpl_renders_component() {
 
     assert_eq!(get_html(), "<div>Hello, world!</div>");
 }
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_component_with_children() {
+    struct HelloWorld;
+
+    impl HelloWorld {
+        fn render(_: &Self, children: Html) -> Html {
+            tmpl! { <div>{&children}</div> }
+        }
+    }
+
+    let tmpl = tmpl! {
+        <HelloWorld>
+            Hello, world!
+        </HelloWorld>
+    };
+
+    let (id, get_html) = mount_tmpl(tmpl);
+
+    assert_eq!(get_html(), "<div>Hello, world!</div>");
+}

@@ -281,17 +281,57 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 }
             }
 
-            TmplAst::Component { name, children: _ } => {
+            TmplAst::Component { name, children } => {
                 let component_name = syn::Ident::new(name, proc_macro2::Span::call_site());
 
-                result.push(quote! {
-                    {
-                        let component_instance = #component_name;
-                        let component_html = #component_name::render(&component_instance);
+                if children.is_empty() {
+                    // Component without children - use the original signature
+                    result.push(quote! {
+                        {
+                            let component_instance = #component_name;
+                            let component_html = #component_name::render(&component_instance);
 
-                        component_html.mount(Some(&element));
+                            component_html.mount(Some(&element));
+                        }
+                    });
+                } else {
+                    // Component with children - create a single Html object for children
+                    // Special handling for text content - trim whitespace
+                    let mut processed_children = Vec::new();
+
+                    // TODO: Review more closely
+                    for child in children {
+                        match child {
+                            TmplAst::Text(text) => {
+                                let trimmed_text = text.trim();
+                                if !trimmed_text.is_empty() {
+                                    processed_children.push(TmplAst::Text(trimmed_text.to_owned()));
+                                }
+                            }
+                            _ => {
+                                processed_children.push(child.clone());
+                            }
+                        }
                     }
-                });
+
+                    let child_fns = render_ast(&processed_children)?;
+
+                    result.push(quote! {
+                        {
+                            let component_instance = #component_name;
+
+                            // Create children Html object - render children directly
+                            let children_html = apex::Html::new(|children_element| {
+                                let element = children_element;
+                                #(#child_fns)*
+                            });
+
+                            let component_html = #component_name::render(&component_instance, children_html);
+
+                            component_html.mount(Some(&element));
+                        }
+                    });
+                }
             }
         }
     }

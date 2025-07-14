@@ -77,16 +77,8 @@ impl Html {
             document.body().ok_or("No body element")?.into()
         };
 
-        let inner_html = target_element.inner_html();
-
-        web_sys::console::log_1(&format!("[APEX] target element {inner_html:?}").into());
-
         let func: &js_sys::Function = self.callback.as_ref().unchecked_ref();
         func.call1(&wasm_bindgen::JsValue::NULL, &target_element.clone().into())?;
-
-        let inner_html = target_element.inner_html();
-
-        web_sys::console::log_1(&format!("[APEX] target element {inner_html:?}").into());
 
         Ok(())
     }

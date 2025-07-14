@@ -22,6 +22,7 @@ pub(crate) fn parse_route_args(args: TokenStream) -> Result<RouteConfig> {
     if let Some(path_pos) = args_str.find("path =") {
         let path_start = path_pos + 6;
         let rest = &args_str[path_start..].trim();
+
         if let Some(quote_start) = rest.find('"') {
             let quote_content = &rest[quote_start + 1..];
             if let Some(quote_end) = quote_content.find('"') {
@@ -34,6 +35,7 @@ pub(crate) fn parse_route_args(args: TokenStream) -> Result<RouteConfig> {
     if let Some(component_pos) = args_str.find("component =") {
         let component_start = component_pos + 11;
         let rest = &args_str[component_start..].trim();
+
         // Extract identifier until comma or end
         let component_end = rest.find(',').unwrap_or(rest.len());
         config.component = Some(rest[..component_end].trim().to_owned());
