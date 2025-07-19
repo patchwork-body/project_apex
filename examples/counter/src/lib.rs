@@ -5,7 +5,7 @@
 
 #![allow(missing_docs)]
 
-use apex::{Html, Signal, View, component, signal, tmpl};
+use apex::{component, signal, tmpl, Html, Signal, View};
 
 /// A page component that contains the counter
 #[component]
@@ -30,5 +30,55 @@ impl View for CounterPage {
             <h1>Awesome</h1>
             <button onclick={inc}>Increment: {counter}</button>
         }
+    }
+}
+
+// Example of the new component macro
+use apex_macro::component;
+
+#[component]
+fn simple_greeting() -> Html {
+    tmpl! {
+        <div class="greeting">
+            <h2>Hello from Component Macro!</h2>
+            <p>This component was created using the new #[component] syntax.</p>
+        </div>
+    }
+}
+
+// You can now use SimpleGreeting as a component:
+// let greeting = SimpleGreeting;
+// let html = greeting.render();
+
+// Example of using the component inside another template
+pub fn example_page() -> Html {
+    tmpl! {
+        <div class="page">
+            <h1>Welcome to Apex!</h1>
+            <SimpleGreeting />
+            <p>Components can be easily composed together.</p>
+        </div>
+    }
+}
+
+// Example of component with props
+#[component]
+fn user_badge(#[prop] name: &'static str, #[prop] role: &'static str) -> Html {
+    tmpl! {
+        <div class="user-badge">
+            <span class="name">{name}</span>
+            <span class="role">{role}</span>
+        </div>
+    }
+}
+
+// Example usage with props
+pub fn team_page() -> Html {
+    tmpl! {
+        <div class="team">
+            <h2>Our Team</h2>
+            <UserBadge name="Alice" role="Developer" />
+            <UserBadge name="Bob" role="Designer" />
+        </div>
     }
 }

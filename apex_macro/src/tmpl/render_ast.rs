@@ -305,11 +305,11 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 let component_name = syn::Ident::new(name, proc_macro2::Span::call_site());
 
                 if children.is_empty() && attributes.is_empty() {
-                    // Component without children or attributes - use the original signature
+                    // Component without children or attributes - use unit struct
                     result.push(quote! {
                         {
                             let component_instance = #component_name;
-                            let component_html = #component_name::render(&component_instance);
+                            let component_html = component_instance.render();
 
                             component_html.mount(Some(&element));
                         }
@@ -317,42 +317,45 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 } else {
                     // Component with attributes and/or children
 
-                    // Generate attributes struct if attributes exist
-                    let attrs_code = if !attributes.is_empty() {
-                        let mut attr_fields = Vec::new();
+                    // Generate field initializers for component struct
+                    let field_initializers = if !attributes.is_empty() {
+                        let mut fields = Vec::new();
                         for (key, value) in attributes {
                             let field_name = syn::Ident::new(key, proc_macro2::Span::call_site());
                             match value {
                                 Attribute::Literal(literal) => {
-                                    attr_fields.push(quote! {
-                                        #field_name: #literal.to_string()
-                                    });
+                                    // For literal attributes, always treat as string
+                                    fields.push(quote! { #field_name: #literal.to_string() });
                                 }
                                 Attribute::Expression(expr) => {
-                                    let expr_tokens: proc_macro2::TokenStream =
-                                        expr.parse().unwrap();
-                                    attr_fields.push(quote! {
-                                        #field_name: #expr_tokens.to_string()
-                                    });
+                                    if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
+                                        fields.push(quote! { #field_name: #expr_tokens });
+                                    }
                                 }
                                 Attribute::Signal(signal) => {
-                                    let signal_tokens: proc_macro2::TokenStream =
-                                        signal.parse().unwrap();
-                                    attr_fields.push(quote! {
-                                        #field_name: #signal_tokens.to_string()
-                                    });
+                                    if let Ok(signal_tokens) = syn::parse_str::<syn::Expr>(signal) {
+                                        fields.push(quote! { #field_name: #signal_tokens });
+                                    }
                                 }
-                                Attribute::EventListener(_) => {}
+                                Attribute::EventListener(_) => {
+                                    // Event listeners are not props
+                                }
                             }
                         }
-
-                        quote! {
-                            let attrs = Attrs {
-                                #(#attr_fields),*
-                            };
-                        }
+                        fields
                     } else {
-                        quote! {}
+                        vec![]
+                    };
+
+                    // Generate component instantiation
+                    let component_instance = if field_initializers.is_empty() {
+                        quote! { #component_name }
+                    } else {
+                        quote! {
+                            #component_name {
+                                #(#field_initializers),*
+                            }
+                        }
                     };
 
                     // Generate children Html if children exist
@@ -377,40 +380,33 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
 
                         let child_fns = render_ast(&processed_children)?;
 
-                        quote! {
+                        Some(quote! {
                             let children_html = apex::Html::new(|element| {
                                 #(#child_fns)*
                             });
-                        }
+                        })
                     } else {
-                        quote! {}
+                        None
                     };
 
-                    // Generate the render call based on what we have
-                    let render_call = match (!attributes.is_empty(), !children.is_empty()) {
-                        (true, true) => quote! {
-                            let component_html = #component_name::render(&component_instance, attrs, children_html);
-                        },
-                        (true, false) => quote! {
-                            let component_html = #component_name::render(&component_instance, attrs);
-                        },
-                        (false, true) => quote! {
-                            let component_html = #component_name::render(&component_instance, children_html);
-                        },
-                        (false, false) => quote! {
-                            let component_html = #component_name::render(&component_instance);
-                        },
+                    // Generate the render call and mount
+                    let render_and_mount = if children_code.is_some() {
+                        quote! {
+                            #children_code
+                            let component_html = component_instance.render(children_html);
+                            component_html.mount(Some(&element));
+                        }
+                    } else {
+                        quote! {
+                            let component_html = component_instance.render();
+                            component_html.mount(Some(&element));
+                        }
                     };
 
                     result.push(quote! {
                         {
-                            let component_instance = #component_name;
-
-                            #attrs_code
-                            #children_code
-                            #render_call
-
-                            component_html.mount(Some(&element));
+                            let component_instance = #component_instance;
+                            #render_and_mount
                         }
                     });
                 }
