@@ -255,15 +255,17 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
 }
 
 fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Vec<TmplAst>> {
+    let mut result = Vec::new();
     let mut content = String::new();
 
     while let Some(&ch) = chars.peek() {
         if ch == '<' {
             break;
         } else if ch == '{' {
-            // If we have accumulated text, return it first
+            // If we have accumulated text, add it to results
             if !content.is_empty() {
-                return Ok(vec![TmplAst::Text(content)]);
+                result.push(TmplAst::Text(content.clone()));
+                content.clear();
             }
 
             // Parse expression
@@ -284,21 +286,23 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Resul
                 expr.push(chars.next().unwrap());
             }
 
-            return Ok(if is_signal_expression(&expr) {
-                split_expression_into_parts(&expr)
+            // Add the expression to results
+            if is_signal_expression(&expr) {
+                result.extend(split_expression_into_parts(&expr));
             } else {
-                vec![TmplAst::Expression(expr)]
-            });
+                result.push(TmplAst::Expression(expr));
+            }
         } else {
             content.push(chars.next().unwrap());
         }
     }
 
-    if content.is_empty() {
-        Ok(vec![])
-    } else {
-        Ok(vec![TmplAst::Text(content)])
+    // Add any remaining text
+    if !content.is_empty() {
+        result.push(TmplAst::Text(content));
     }
+
+    Ok(result)
 }
 
 #[cfg(test)]
