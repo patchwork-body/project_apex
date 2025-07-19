@@ -205,6 +205,17 @@ fn test_tmpl_renders_several_elements_on_the_same_level() {
 }
 
 #[wasm_bindgen_test]
+fn test_tmpl_renders_trimmed_text_with_newlines() {
+    let tmpl = tmpl! { <div>
+        Hello, world!
+    </div> };
+
+    let (id, get_html) = mount_tmpl(tmpl);
+
+    assert_eq!(get_html(), "<div>Hello, world!</div>");
+}
+
+#[wasm_bindgen_test]
 fn test_tmpl_renders_signal() {
     let counter = signal!(0);
     let counter_clone = counter.clone();
@@ -310,6 +321,8 @@ fn test_tmpl_renders_component() {
 fn test_tmpl_renders_component_with_children() {
     struct HelloWorld;
 
+    struct Attrs;
+
     impl HelloWorld {
         fn render(_: &Self, children: Html) -> Html {
             tmpl! { <div>{&children}</div> }
@@ -325,4 +338,24 @@ fn test_tmpl_renders_component_with_children() {
     let (id, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div>Hello, world!</div>");
+}
+
+#[wasm_bindgen_test]
+fn test_tmpl_renders_component_with_children_and_attrs() {
+    struct HelloWorld;
+
+    struct Attrs {
+        class: String,
+    }
+
+    impl HelloWorld {
+        fn render(_: &Self, attrs: Attrs, children: Html) -> Html {
+            tmpl! { <div class={&attrs.class}>{&children}</div> }
+        }
+    }
+
+    let tmpl = tmpl! { <HelloWorld class="container">Hello, world!</HelloWorld> };
+    let (id, get_html) = mount_tmpl(tmpl);
+
+    assert_eq!(get_html(), "<div class=\"container\">Hello, world!</div>");
 }

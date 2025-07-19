@@ -1,7 +1,7 @@
 use std::{collections::HashMap, str::Chars};
 use syn::Result;
 
-use crate::tmpl::{ComponentAttribute, TmplAst};
+use crate::tmpl::{Attribute, TmplAst};
 
 /// Detects if an expression contains signal usage (variables prefixed with $ sign)
 fn is_signal_expression(expr: &str) -> bool {
@@ -120,7 +120,7 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                     value.push(chars.next().unwrap());
                 }
 
-                attributes.insert(attr_name, ComponentAttribute::Literal(value));
+                attributes.insert(attr_name, Attribute::Literal(value));
                 continue;
             } else if chars.peek() == Some(&'{') {
                 // Expression in braces
@@ -143,20 +143,11 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                 }
 
                 if attr_name.starts_with("on") {
-                    attributes.insert(
-                        attr_name,
-                        ComponentAttribute::EventListener(value.trim().to_owned()),
-                    );
+                    attributes.insert(attr_name, Attribute::EventListener(value.trim().to_owned()));
                 } else if is_signal_expression(&value) {
-                    attributes.insert(
-                        attr_name,
-                        ComponentAttribute::Signal(value.trim().to_owned()),
-                    );
+                    attributes.insert(attr_name, Attribute::Signal(value.trim().to_owned()));
                 } else {
-                    attributes.insert(
-                        attr_name,
-                        ComponentAttribute::Expression(value.trim().to_owned()),
-                    );
+                    attributes.insert(attr_name, Attribute::Expression(value.trim().to_owned()));
                 }
 
                 continue;
@@ -172,7 +163,7 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                     value.push(chars.next().unwrap());
                 }
 
-                attributes.insert(attr_name, ComponentAttribute::Literal(value));
+                attributes.insert(attr_name, Attribute::Literal(value));
                 continue;
             };
         }
@@ -250,6 +241,7 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
     Ok(Some(if is_component(&tag_name) {
         TmplAst::Component {
             name: tag_name,
+            attributes,
             children,
         }
     } else {
@@ -345,7 +337,7 @@ mod tests {
                 tag: "div".to_owned(),
                 attributes: HashMap::from([(
                     "class".to_owned(),
-                    ComponentAttribute::Literal("container".to_owned())
+                    Attribute::Literal("container".to_owned())
                 )]),
                 self_closing: false,
                 children: vec![TmplAst::Text("Hello, world!".to_owned())],
@@ -365,7 +357,7 @@ mod tests {
                 tag: "div".to_owned(),
                 attributes: HashMap::from([(
                     "class".to_owned(),
-                    ComponentAttribute::Literal("container".to_owned())
+                    Attribute::Literal("container".to_owned())
                 )]),
                 self_closing: false,
                 children: vec![
@@ -390,11 +382,11 @@ mod tests {
                 attributes: HashMap::from([
                     (
                         "class".to_owned(),
-                        ComponentAttribute::Literal("container".to_owned())
+                        Attribute::Literal("container".to_owned())
                     ),
                     (
                         "onclick".to_owned(),
-                        ComponentAttribute::EventListener("handleClick".to_owned())
+                        Attribute::EventListener("handleClick".to_owned())
                     )
                 ]),
                 self_closing: false,
@@ -471,7 +463,7 @@ mod tests {
                 tag: "div".to_owned(),
                 attributes: HashMap::from([(
                     "class".to_owned(),
-                    ComponentAttribute::Expression("class".to_owned())
+                    Attribute::Expression("class".to_owned())
                 )]),
                 self_closing: false,
                 children: vec![],
@@ -591,6 +583,7 @@ mod tests {
             ast[0],
             TmplAst::Component {
                 name: "HelloWorld".to_owned(),
+                attributes: HashMap::new(),
                 children: vec![],
             }
         );

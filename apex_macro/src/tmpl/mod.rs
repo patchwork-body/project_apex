@@ -5,7 +5,7 @@ mod render_ast;
 pub(crate) use parse_tmpl::*;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ComponentAttribute {
+pub(crate) enum Attribute {
     Literal(String),
     Expression(String),
     Signal(String),
@@ -19,12 +19,13 @@ pub(crate) enum TmplAst {
     Signal(String),
     Element {
         tag: String,
-        attributes: std::collections::HashMap<String, ComponentAttribute>,
+        attributes: std::collections::HashMap<String, Attribute>,
         self_closing: bool,
         children: Vec<TmplAst>,
     },
     Component {
         name: String,
+        attributes: std::collections::HashMap<String, Attribute>,
         children: Vec<TmplAst>,
     },
 }

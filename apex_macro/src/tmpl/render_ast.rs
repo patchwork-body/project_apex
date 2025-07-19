@@ -1,4 +1,4 @@
-use crate::tmpl::{ComponentAttribute, TmplAst};
+use crate::tmpl::{Attribute, TmplAst};
 use quote::quote;
 use syn::Result;
 
@@ -34,13 +34,32 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
     for item in content {
         match item {
             TmplAst::Text(text) => {
-                // Skip whitespace-only text nodes
-                if text.trim().is_empty() {
+                // Remove newlines and normalize whitespace, but preserve meaningful spaces
+                let mut processed_text = text.replace(['\n', '\r'], " ");
+
+                // Replace multiple spaces with single space
+                while processed_text.contains("  ") {
+                    processed_text = processed_text.replace("  ", " ");
+                }
+
+                // Only skip if the text is purely whitespace
+                if processed_text.trim().is_empty() {
                     continue;
                 }
 
-                // Generate code to append text node to the element
-                let text_content = text.clone();
+                // Only trim if the text consists of more than just a few spaces and contains substantial content
+                // This handles cases like "\n    Hello, world!\n    " but preserves " + " and " ! "
+                let trimmed = processed_text.trim();
+                let text = if trimmed.len() > 5 && processed_text.len() > trimmed.len() + 1 {
+                    // Only trim if we have substantial content (>5 chars) and any whitespace difference
+                    trimmed.to_owned()
+                } else {
+                    processed_text
+                };
+
+                if text.is_empty() {
+                    continue;
+                }
 
                 result.push(quote! {
                     {
@@ -48,7 +67,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
 
                         let window = window().expect("no global `window` exists");
                         let document = window.document().expect("should have a document on window");
-                        let text_node = document.create_text_node(#text_content);
+                        let text_node = document.create_text_node(#text);
 
                         let _ = element.append_child(&text_node);
                     }
@@ -84,10 +103,10 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
 
                 let attr_setters = attributes.iter().filter_map(|(k, v)| {
                     match v {
-                        ComponentAttribute::Literal(val) => Some(quote! {
+                        Attribute::Literal(val) => Some(quote! {
                             new_element.set_attribute(#k, #val).expect("Failed to set attribute");
                         }),
-                        ComponentAttribute::Expression(expr) => {
+                        Attribute::Expression(expr) => {
                             if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
                                 Some(quote! {
                                     new_element.set_attribute(#k, &{ let v = #expr_tokens; v.to_string() }).expect("Failed to set dynamic attribute");
@@ -96,7 +115,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                                 None
                             }
                         },
-                        ComponentAttribute::Signal(expr) => {
+                        Attribute::Signal(expr) => {
                             let signals = find_signals(expr);
 
                             let signal_clones = signals
@@ -144,13 +163,13 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                                 None
                             }
                         },
-                        ComponentAttribute::EventListener(_) => None,
+                        Attribute::EventListener(_) => None,
                     }
                 }).collect::<Vec<_>>();
 
                 let event_listeners = attributes.iter().filter_map(|(k, v)| {
                     match v {
-                        ComponentAttribute::EventListener(handler) => {
+                        Attribute::EventListener(handler) => {
                             // Extract event name from attribute (e.g., "onclick" -> "click")
                             let event_name = if k.starts_with("on") && k.len() > 2 {
                                 &k[2..] // Remove "on" prefix
@@ -246,11 +265,8 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                         use apex::web_sys::*;
                         use apex::*;
 
-                        let text_node = window().expect("no global `window` exists")
-                            .document().expect("should have a document on window")
-                            .create_text_node("");
-
-                        let _ = element.append_child(&text_node);
+                        let window = apex::web_sys::window().expect("no global `window` exists");
+                        let document = window.document().expect("should have a document on window");
 
                         #(#signal_clones)*
 
@@ -281,11 +297,15 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 }
             }
 
-            TmplAst::Component { name, children } => {
+            TmplAst::Component {
+                name,
+                attributes,
+                children,
+            } => {
                 let component_name = syn::Ident::new(name, proc_macro2::Span::call_site());
 
-                if children.is_empty() {
-                    // Component without children - use the original signature
+                if children.is_empty() && attributes.is_empty() {
+                    // Component without children or attributes - use the original signature
                     result.push(quote! {
                         {
                             let component_instance = #component_name;
@@ -295,38 +315,100 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                         }
                     });
                 } else {
-                    // Component with children - create a single Html object for children
-                    // Special handling for text content - trim whitespace
-                    let mut processed_children = Vec::new();
+                    // Component with attributes and/or children
 
-                    // TODO: Review more closely
-                    for child in children {
-                        match child {
-                            TmplAst::Text(text) => {
-                                let trimmed_text = text.trim();
-                                if !trimmed_text.is_empty() {
-                                    processed_children.push(TmplAst::Text(trimmed_text.to_owned()));
+                    // Generate attributes struct if attributes exist
+                    let attrs_code = if !attributes.is_empty() {
+                        let mut attr_fields = Vec::new();
+                        for (key, value) in attributes {
+                            let field_name = syn::Ident::new(key, proc_macro2::Span::call_site());
+                            match value {
+                                Attribute::Literal(literal) => {
+                                    attr_fields.push(quote! {
+                                        #field_name: #literal.to_string()
+                                    });
                                 }
-                            }
-                            _ => {
-                                processed_children.push(child.clone());
+                                Attribute::Expression(expr) => {
+                                    let expr_tokens: proc_macro2::TokenStream =
+                                        expr.parse().unwrap();
+                                    attr_fields.push(quote! {
+                                        #field_name: #expr_tokens.to_string()
+                                    });
+                                }
+                                Attribute::Signal(signal) => {
+                                    let signal_tokens: proc_macro2::TokenStream =
+                                        signal.parse().unwrap();
+                                    attr_fields.push(quote! {
+                                        #field_name: #signal_tokens.to_string()
+                                    });
+                                }
+                                Attribute::EventListener(_) => {}
                             }
                         }
-                    }
 
-                    let child_fns = render_ast(&processed_children)?;
+                        quote! {
+                            let attrs = Attrs {
+                                #(#attr_fields),*
+                            };
+                        }
+                    } else {
+                        quote! {}
+                    };
+
+                    // Generate children Html if children exist
+                    let children_code = if !children.is_empty() {
+                        // Special handling for text content - trim whitespace
+                        let mut processed_children = Vec::new();
+
+                        for child in children {
+                            match child {
+                                TmplAst::Text(text) => {
+                                    let trimmed_text = text.trim();
+                                    if !trimmed_text.is_empty() {
+                                        processed_children
+                                            .push(TmplAst::Text(trimmed_text.to_owned()));
+                                    }
+                                }
+                                _ => {
+                                    processed_children.push(child.clone());
+                                }
+                            }
+                        }
+
+                        let child_fns = render_ast(&processed_children)?;
+
+                        quote! {
+                            let children_html = apex::Html::new(|element| {
+                                #(#child_fns)*
+                            });
+                        }
+                    } else {
+                        quote! {}
+                    };
+
+                    // Generate the render call based on what we have
+                    let render_call = match (!attributes.is_empty(), !children.is_empty()) {
+                        (true, true) => quote! {
+                            let component_html = #component_name::render(&component_instance, attrs, children_html);
+                        },
+                        (true, false) => quote! {
+                            let component_html = #component_name::render(&component_instance, attrs);
+                        },
+                        (false, true) => quote! {
+                            let component_html = #component_name::render(&component_instance, children_html);
+                        },
+                        (false, false) => quote! {
+                            let component_html = #component_name::render(&component_instance);
+                        },
+                    };
 
                     result.push(quote! {
                         {
                             let component_instance = #component_name;
 
-                            // Create children Html object - render children directly
-                            let children_html = apex::Html::new(|children_element| {
-                                let element = children_element;
-                                #(#child_fns)*
-                            });
-
-                            let component_html = #component_name::render(&component_instance, children_html);
+                            #attrs_code
+                            #children_code
+                            #render_call
 
                             component_html.mount(Some(&element));
                         }
