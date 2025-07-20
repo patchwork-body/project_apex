@@ -2,10 +2,10 @@
 #![allow(unused)]
 
 use apex::{Html, signal, tmpl, web_sys};
-use std::cell::RefCell;
 use std::sync::Once;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread_local;
+use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -507,4 +507,57 @@ fn test_component_macro_with_optional_props() {
         get_html2(),
         "<div class=\"greeting\"><p>Hello Bob!</p></div>"
     );
+}
+
+#[wasm_bindgen_test]
+fn test_component_with_closure_prop() {
+    use apex::signal::Signal;
+    use apex::wasm_bindgen::JsCast;
+    use apex_macro::component;
+
+    #[component]
+    fn counter(#[prop] value: Signal<u32>, #[prop] on_inc: Rc<dyn Fn()>) -> Html {
+        tmpl! {
+            <button onclick={on_inc}>Count: {$value}</button>
+        }
+    }
+
+    #[component]
+    fn app() -> Html {
+        let count = signal!(0);
+
+        let inc = {
+            let count = count.clone();
+
+            Rc::new(move || {
+                count.update(|v| v + 1);
+            })
+        };
+
+        tmpl! {
+            <Counter value={count.clone()} on_inc={inc.clone()} />
+        }
+    }
+
+    let tmpl = tmpl! {
+        <App />
+    };
+
+    let (id, get_html) = mount_tmpl(tmpl);
+    assert_eq!(get_html(), "<button>Count: 0</button>");
+
+    let window = web_sys::window().expect("no global `window` exists");
+    let document = window.document().expect("no global `document` exists");
+    let container = document.get_element_by_id(&id).expect("no element with id");
+    let button = container
+        .query_selector("button")
+        .expect("no button found")
+        .unwrap();
+
+    let button = button
+        .dyn_into::<web_sys::HtmlButtonElement>()
+        .expect("not a button");
+    button.click();
+
+    assert_eq!(get_html(), "<button>Count: 1</button>");
 }

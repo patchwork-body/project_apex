@@ -360,10 +360,6 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                     let mut builder_chain = quote! { #component_name::builder() };
 
                     for (key, value) in attributes {
-                        if let Attribute::EventListener(_) = value {
-                            continue; // Skip event listeners
-                        }
-
                         let method_name = syn::Ident::new(key, proc_macro2::Span::call_site());
                         let value_expr = match value {
                             Attribute::Literal(literal) => {
@@ -384,7 +380,14 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                                     continue;
                                 }
                             }
-                            Attribute::EventListener(_) => unreachable!(),
+                            Attribute::EventListener(handler) => {
+                                // Event listeners become function props
+                                if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
+                                    quote! { #handler_tokens }
+                                } else {
+                                    continue;
+                                }
+                            }
                         };
 
                         builder_chain = quote! { #builder_chain.#method_name(#value_expr) };

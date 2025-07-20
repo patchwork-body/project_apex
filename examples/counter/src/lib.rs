@@ -82,3 +82,29 @@ pub fn team_page() -> Html {
         </div>
     }
 }
+
+// Example of component with function props
+#[component]
+fn button_with_handler(
+    #[prop] text: &'static str,
+    #[prop] on_click: std::sync::Arc<dyn Fn()>,
+) -> Html {
+    tmpl! {
+        <button onclick={on_click}>{text}</button>
+    }
+}
+
+// Example usage with function props
+pub fn interactive_page() -> Html {
+    let handler = std::sync::Arc::new(|| {
+        println!("Button clicked!");
+    }) as std::sync::Arc<dyn Fn()>;
+
+    tmpl! {
+        <div class="interactive">
+            <h1>Interactive Components</h1>
+            <ButtonWithHandler text="Click me!" on_click={handler.clone()} />
+            <p>Check the console for click events.</p>
+        </div>
+    }
+}
