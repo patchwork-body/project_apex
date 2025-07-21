@@ -28,4 +28,11 @@ pub(crate) enum TmplAst {
         attributes: std::collections::HashMap<String, Attribute>,
         children: Vec<TmplAst>,
     },
+    Slot {
+        name: String,
+        children: Vec<TmplAst>,
+    },
+    SlotInterpolation {
+        slot_name: String,
+    },
 }

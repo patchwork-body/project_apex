@@ -343,111 +343,111 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
             } => {
                 let component_name = syn::Ident::new(name, proc_macro2::Span::call_site());
 
-                if children.is_empty() && attributes.is_empty() {
-                    // Component without children or attributes - use builder with all defaults
-                    result.push(quote! {
-                        {
-                            let component_instance = #component_name::builder().build();
-                            let component_html = component_instance.render();
-
-                            component_html.mount(Some(&element));
-                        }
-                    });
-                } else {
-                    // Component with attributes and/or children
-
-                    // Generate builder method calls for each attribute
-                    let mut builder_chain = quote! { #component_name::builder() };
-
-                    for (key, value) in attributes {
-                        let method_name = syn::Ident::new(key, proc_macro2::Span::call_site());
-                        let value_expr = match value {
-                            Attribute::Literal(literal) => {
-                                // For literal attributes, always treat as string
-                                quote! { #literal.to_string() }
-                            }
-                            Attribute::Expression(expr) => {
-                                if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
-                                    quote! { #expr_tokens }
-                                } else {
-                                    continue;
-                                }
-                            }
-                            Attribute::Signal(signal) => {
-                                if let Ok(signal_tokens) = syn::parse_str::<syn::Expr>(signal) {
-                                    quote! { #signal_tokens }
-                                } else {
-                                    continue;
-                                }
-                            }
-                            Attribute::EventListener(handler) => {
-                                // Event listeners become function props
-                                if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
-                                    quote! { #handler_tokens }
-                                } else {
-                                    continue;
-                                }
-                            }
+                // Collect slot children into a map: slot_name -> Html
+                let mut slot_map = std::collections::HashMap::new();
+                let mut non_slot_children = Vec::new();
+                for child in children {
+                    if let TmplAst::Slot { name, children } = child {
+                        // Render the slot children into Html
+                        let slot_child_fns = render_ast(children)?;
+                        let slot_html = quote! {
+                            apex::Html::new(|element| {
+                                #(#slot_child_fns)*
+                            })
                         };
-
-                        builder_chain = quote! { #builder_chain.#method_name(#value_expr) };
+                        slot_map.insert(name.clone(), slot_html);
+                    } else {
+                        non_slot_children.push(child.clone());
                     }
+                }
 
-                    // Complete the builder chain with .build()
-                    let component_instance = quote! { #builder_chain.build() };
+                // Generate builder method calls for each attribute
+                let mut builder_chain = quote! { #component_name::builder() };
 
-                    // Generate children Html if children exist
-                    let children_code = if !children.is_empty() {
-                        // Special handling for text content - trim whitespace
-                        let mut processed_children = Vec::new();
-
-                        for child in children {
-                            match child {
-                                TmplAst::Text(text) => {
-                                    let trimmed_text = text.trim();
-                                    if !trimmed_text.is_empty() {
-                                        processed_children
-                                            .push(TmplAst::Text(trimmed_text.to_owned()));
-                                    }
-                                }
-                                _ => {
-                                    processed_children.push(child.clone());
-                                }
+                for (key, value) in attributes {
+                    let method_name = syn::Ident::new(key, proc_macro2::Span::call_site());
+                    let value_expr = match value {
+                        Attribute::Literal(literal) => {
+                            quote! { #literal.to_string() }
+                        }
+                        Attribute::Expression(expr) => {
+                            if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
+                                quote! { #expr_tokens }
+                            } else {
+                                continue;
                             }
                         }
-
-                        let child_fns = render_ast(&processed_children)?;
-
-                        Some(quote! {
-                            let children_html = apex::Html::new(|element| {
-                                #(#child_fns)*
-                            });
-                        })
-                    } else {
-                        None
-                    };
-
-                    // Generate the render call and mount
-                    let render_and_mount = if children_code.is_some() {
-                        quote! {
-                            #children_code
-                            let component_html = component_instance.render(children_html);
-                            component_html.mount(Some(&element));
+                        Attribute::Signal(signal) => {
+                            if let Ok(signal_tokens) = syn::parse_str::<syn::Expr>(signal) {
+                                quote! { #signal_tokens }
+                            } else {
+                                continue;
+                            }
                         }
-                    } else {
-                        quote! {
-                            let component_html = component_instance.render();
-                            component_html.mount(Some(&element));
+                        Attribute::EventListener(handler) => {
+                            if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
+                                quote! { #handler_tokens }
+                            } else {
+                                continue;
+                            }
                         }
                     };
-
-                    result.push(quote! {
-                        {
-                            let component_instance = #component_instance;
-                            #render_and_mount
-                        }
-                    });
+                    builder_chain = quote! { #builder_chain.#method_name(#value_expr) };
                 }
+
+                // Add builder calls for slots
+                for (slot_name, slot_html) in &slot_map {
+                    let method_name = syn::Ident::new(slot_name, proc_macro2::Span::call_site());
+                    builder_chain = quote! { #builder_chain.#method_name(#slot_html) };
+                }
+
+                // Complete the builder chain with .build()
+                let component_instance = quote! { #builder_chain.build() };
+
+                // Generate children Html if non-slot children exist (for default slot)
+                let children_code = if !non_slot_children.is_empty() {
+                    let child_fns = render_ast(&non_slot_children)?;
+                    Some(quote! {
+                        let children_html = apex::Html::new(|element| {
+                            #(#child_fns)*
+                        });
+                    })
+                } else {
+                    None
+                };
+
+                // Generate the render call and mount
+                let render_and_mount = if children_code.is_some() {
+                    quote! {
+                        #children_code
+                        let component_html = component_instance.render();
+                        component_html.mount(Some(&element));
+                    }
+                } else {
+                    quote! {
+                        let component_html = component_instance.render();
+                        component_html.mount(Some(&element));
+                    }
+                };
+
+                result.push(quote! {
+                    {
+                        let component_instance = #component_instance;
+                        #render_and_mount
+                    }
+                });
+            }
+            TmplAst::Slot { .. } => {
+                // Slot nodes are not rendered directly; they are passed to components
+            }
+            TmplAst::SlotInterpolation { slot_name } => {
+                let slot_ident = syn::Ident::new(slot_name, proc_macro2::Span::call_site());
+                result.push(quote! {
+                    {
+                        // Mount the slot content directly into the current element
+                        #slot_ident.mount(Some(&element));
+                    }
+                });
             }
         }
     }

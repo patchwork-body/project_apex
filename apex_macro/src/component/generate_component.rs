@@ -2,7 +2,8 @@ use quote::quote;
 use syn::{ItemFn, Result};
 
 use crate::component::{
-    parse_props::parse_props, to_pascal_case::to_pascal_case, validate_component_function,
+    parse_props::parse_props, parse_slots::parse_slots, to_pascal_case::to_pascal_case,
+    validate_component_function,
 };
 
 /// Generate a component from a function
@@ -15,75 +16,132 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
     let fn_body = &input.block;
     let vis = &input.vis;
 
-    // Parse props from function parameters
+    // Parse props and slots from function parameters
     let props = parse_props(&input);
+    let slots = parse_slots(&input);
 
     // Convert function name to PascalCase for the struct
     let struct_name = syn::Ident::new(&to_pascal_case(&fn_name.to_string()), fn_name.span());
     let builder_name = syn::Ident::new(&format!("{struct_name}Builder"), fn_name.span());
 
-    // Generate struct fields from props
-    let struct_fields = props.iter().map(|prop| {
-        let name = &prop.name;
-        let ty = &prop.ty;
-        quote! {
-            pub #name: #ty
-        }
-    });
+    // Generate struct fields from props and slots
+    let struct_fields = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            let ty = &prop.ty;
+            quote! {
+                pub #name: #ty
+            }
+        })
+        .chain(slots.iter().map(|slot| {
+            let name = &slot.name;
+            quote! {
+                pub #name: apex::Html
+            }
+        }));
 
     // Generate builder struct fields (Option for all)
-    let builder_fields = props.iter().map(|prop| {
-        let name = &prop.name;
-        let ty = &prop.ty;
-        quote! {
-            #name: Option<#ty>
-        }
-    });
+    let builder_fields = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            let ty = &prop.ty;
+            quote! {
+                #name: Option<#ty>
+            }
+        })
+        .chain(slots.iter().map(|slot| {
+            let name = &slot.name;
+            quote! {
+                #name: Option<apex::Html>
+            }
+        }));
 
     // Generate builder setter methods
-    let builder_setters = props.iter().map(|prop| {
-        let name = &prop.name;
-        let ty = &prop.ty;
-        quote! {
-            pub fn #name(mut self, value: #ty) -> Self {
-                self.#name = Some(value);
-                self
+    let builder_setters = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            let ty = &prop.ty;
+            quote! {
+                pub fn #name(mut self, value: #ty) -> Self {
+                    self.#name = Some(value);
+                    self
+                }
             }
-        }
-    });
+        })
+        .chain(slots.iter().map(|slot| {
+            let name = &slot.name;
+            quote! {
+                pub fn #name(mut self, value: apex::Html) -> Self {
+                    self.#name = Some(value);
+                    self
+                }
+            }
+        }));
 
     // Generate builder build method
-    let build_field_inits = props.iter().map(|prop| {
-        let name = &prop.name;
-        if let Some(default) = &prop.default {
-            quote! {
-                #name: self.#name.unwrap_or_else(|| #default)
+    let build_field_inits = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            if let Some(default) = &prop.default {
+                quote! {
+                    #name: self.#name.unwrap_or_else(|| #default)
+                }
+            } else {
+                let name_str = name.ident.to_string();
+                quote! {
+                    #name: self.#name.expect(&format!("Required prop '{}' not set", #name_str))
+                }
             }
-        } else {
-            let name_str = name.ident.to_string();
-            quote! {
-                #name: self.#name.expect(&format!("Required prop '{}' not set", #name_str))
+        })
+        .chain(slots.iter().map(|slot| {
+            let name = &slot.name;
+            if let Some(default) = &slot.default {
+                quote! {
+                    #name: self.#name.unwrap_or_else(|| #default)
+                }
+            } else {
+                let name_str = name.ident.to_string();
+                quote! {
+                    #name: self.#name.expect(&format!("Required slot '{}' not set", #name_str))
+                }
             }
-        }
-    });
+        }));
 
-    // Generate local variable bindings for props in render method
-    let prop_bindings = props.iter().map(|prop| {
-        let name = &prop.name;
-        quote! {
-            let #name = self.#name.clone();
-        }
-    });
+    // Generate local variable bindings for props and slots in render method
+    let prop_bindings = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            quote! {
+                let #name = self.#name.clone();
+            }
+        })
+        .chain(slots.iter().map(|slot| {
+            let name = &slot.name;
+            quote! {
+                let #name = self.#name.clone();
+            }
+        }));
 
     // Generate builder default field values
-    let builder_default_fields = props.iter().map(|prop| {
-        let name = &prop.name;
-        quote! { #name: None }
-    });
+    let builder_default_fields = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            quote! { #name: None }
+        })
+        .chain(slots.iter().map(|slot| {
+            let name = &slot.name;
+            quote! { #name: None }
+        }));
 
     // Generate the component struct and impl
-    let output = if props.is_empty() {
-        // No props - generate unit struct with builder for consistency
+    let output = if props.is_empty() && slots.is_empty() {
+        // No props or slots - generate unit struct with builder for consistency
         quote! {
             #vis struct #struct_name;
 
@@ -110,7 +168,7 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
             }
         }
     } else {
-        // Has props - generate struct with builder
+        // Has props or slots - generate struct with builder
         quote! {
             #vis struct #struct_name {
                 #(#struct_fields),*

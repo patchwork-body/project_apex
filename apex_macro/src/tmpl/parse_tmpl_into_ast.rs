@@ -14,6 +14,26 @@ fn is_component(tag_name: &str) -> bool {
     tag_name.chars().next().is_some_and(|c| c.is_uppercase())
 }
 
+/// Detects if a tag name is a slot (starts with #)
+fn is_slot(tag_name: &str) -> bool {
+    tag_name.starts_with('#')
+}
+
+/// Extracts slot name from tag name (removes # prefix)
+fn extract_slot_name(tag_name: &str) -> String {
+    tag_name[1..].to_string()
+}
+
+/// Detects if an expression is a slot interpolation (starts with @)
+fn is_slot_interpolation(expr: &str) -> bool {
+    expr.trim().starts_with('@')
+}
+
+/// Extracts slot name from slot interpolation (removes @ prefix)
+fn extract_slot_interpolation_name(expr: &str) -> String {
+    expr.trim()[1..].to_string()
+}
+
 /// Splits an expression into multiple parts, separating signals from literals
 fn split_expression_into_parts(expr: &str) -> Vec<TmplAst> {
     // If the expression contains signals, treat the entire expression as a single signal
@@ -238,6 +258,15 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
         }
     }
 
+    // If this element is a slot (starts with #), treat it as a Slot node
+    if is_slot(&tag_name) {
+        let slot_name = extract_slot_name(&tag_name);
+        return Ok(Some(TmplAst::Slot {
+            name: slot_name,
+            children,
+        }));
+    }
+
     Ok(Some(if is_component(&tag_name) {
         TmplAst::Component {
             name: tag_name,
@@ -289,6 +318,9 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Resul
             // Add the expression to results
             if is_signal_expression(&expr) {
                 result.extend(split_expression_into_parts(&expr));
+            } else if is_slot_interpolation(&expr) {
+                let slot_name = extract_slot_interpolation_name(&expr);
+                result.push(TmplAst::SlotInterpolation { slot_name });
             } else {
                 result.push(TmplAst::Expression(expr));
             }
@@ -572,6 +604,26 @@ mod tests {
                 attributes: HashMap::new(),
                 self_closing: false,
                 children: vec![TmplAst::Text("$count".to_owned())],
+            }
+        );
+    }
+
+    #[test]
+    fn test_slot_interpolation() {
+        let input = "<div>{@slotName}</div>";
+        let ast = parse_tmpl_into_ast(input).unwrap();
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                self_closing: false,
+                children: vec![TmplAst::SlotInterpolation {
+                    slot_name: "slotName".to_owned()
+                }],
             }
         );
     }

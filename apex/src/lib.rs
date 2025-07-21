@@ -7,8 +7,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 #[cfg(not(target_arch = "wasm32"))]
 use std::pin::Pin;
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 // Re-export the html macro for convenience
 pub use apex_macro::tmpl;
@@ -38,12 +37,12 @@ pub trait View {
     fn render(&self) -> Html;
 }
 
-type HtmlCallback = Closure<dyn Fn(web_sys::Element)>;
+type HtmlCallback = Rc<Closure<dyn Fn(web_sys::Element)>>;
 
 /// Represents rendered HTML content
 ///
 /// This type wraps HTML strings and provides a safe way to handle HTML content
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Html {
     callback: HtmlCallback,
 }
@@ -55,7 +54,9 @@ impl Html {
         F: Fn(web_sys::Element) + 'static,
     {
         Html {
-            callback: Closure::wrap(Box::new(callback) as Box<dyn Fn(web_sys::Element)>),
+            callback: Rc::new(Closure::wrap(
+                Box::new(callback) as Box<dyn Fn(web_sys::Element)>
+            )),
         }
     }
 
@@ -77,7 +78,7 @@ impl Html {
             document.body().ok_or("No body element")?.into()
         };
 
-        let func: &js_sys::Function = self.callback.as_ref().unchecked_ref();
+        let func: &js_sys::Function = self.callback.as_ref().as_ref().unchecked_ref();
         func.call1(&wasm_bindgen::JsValue::NULL, &target_element.clone().into())?;
 
         Ok(())
@@ -90,13 +91,15 @@ impl Html {
     }
 }
 
-impl From<String> for Html {
-    fn from(content: String) -> Self {
-        Html {
-            callback: Closure::new(Box::new(move |element: web_sys::Element| {
+impl TryFrom<String> for Html {
+    type Error = ();
+
+    fn try_from(content: String) -> Result<Self, Self::Error> {
+        Ok(Html {
+            callback: Rc::new(Closure::new(Box::new(move |element: web_sys::Element| {
                 element.set_inner_html(&content);
-            })),
-        }
+            }))),
+        })
     }
 }
 
@@ -104,9 +107,9 @@ impl From<&str> for Html {
     fn from(content: &str) -> Self {
         let owned_content = content.to_string();
         Html {
-            callback: Closure::new(Box::new(move |element: web_sys::Element| {
+            callback: Rc::new(Closure::new(Box::new(move |element: web_sys::Element| {
                 element.set_inner_html(&owned_content);
-            })),
+            }))),
         }
     }
 }
@@ -118,7 +121,7 @@ impl std::fmt::Display for Html {
         if let Some(window) = window() {
             if let Some(document) = window.document() {
                 if let Ok(temp_element) = document.create_element("div") {
-                    let func: &js_sys::Function = self.callback.as_ref().unchecked_ref();
+                    let func: &js_sys::Function = self.callback.as_ref().as_ref().unchecked_ref();
                     if func
                         .call1(&wasm_bindgen::JsValue::NULL, &temp_element.clone().into())
                         .is_ok()
@@ -446,7 +449,7 @@ impl Apex {
         let body = document.body().ok_or("No body element")?;
 
         let html = component.render();
-        let func: &js_sys::Function = html.callback.as_ref().unchecked_ref();
+        let func: &js_sys::Function = html.callback.as_ref().as_ref().unchecked_ref();
         func.call1(&wasm_bindgen::JsValue::NULL, &body.into())?;
 
         Ok(())

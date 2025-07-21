@@ -1,6 +1,7 @@
 mod generate_component;
 mod is_html_type;
 mod parse_props;
+mod parse_slots;
 mod to_pascal_case;
 mod validate_component_function;
 

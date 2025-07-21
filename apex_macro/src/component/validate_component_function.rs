@@ -4,19 +4,25 @@ use crate::component::is_html_type;
 
 /// Validate that the function has the correct signature for a component
 pub(crate) fn validate_component_function(input: &ItemFn) -> Result<()> {
-    // Check that all parameters have #[prop] attribute
+    // Check that all parameters have #[prop] or #[slot] attribute
     for arg in &input.sig.inputs {
         match arg {
             FnArg::Typed(pat_type) => {
-                // Check if parameter has #[prop] attribute
+                // Check if parameter has #[prop] or #[slot] attribute
                 let has_prop_attr = pat_type.attrs.iter().any(|attr| {
                     attr.path()
                         .get_ident()
                         .map(|ident| ident == "prop")
                         .unwrap_or(false)
                 });
+                let has_slot_attr = pat_type.attrs.iter().any(|attr| {
+                    attr.path()
+                        .get_ident()
+                        .map(|ident| ident == "slot")
+                        .unwrap_or(false)
+                });
 
-                if !has_prop_attr {
+                if !has_prop_attr && !has_slot_attr {
                     // Extract parameter name for better error message
                     let param_name = match &*pat_type.pat {
                         Pat::Ident(pat_ident) => pat_ident.ident.to_string(),
@@ -25,7 +31,9 @@ pub(crate) fn validate_component_function(input: &ItemFn) -> Result<()> {
 
                     return Err(syn::Error::new_spanned(
                         pat_type,
-                        format!("Component parameter '{param_name}' must have #[prop] attribute"),
+                        format!(
+                            "Component parameter '{param_name}' must have #[prop] or #[slot] attribute"
+                        ),
                     ));
                 }
             }
