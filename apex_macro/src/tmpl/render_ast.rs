@@ -165,6 +165,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                                         &format!("{signal}_clone"),
                                         proc_macro2::Span::call_site(),
                                     );
+
                                     quote! {
                                         let #clone_ident = #signal_ident.clone();
                                     }
@@ -346,15 +347,18 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 // Collect slot children into a map: slot_name -> Html
                 let mut slot_map = std::collections::HashMap::new();
                 let mut non_slot_children = Vec::new();
+
                 for child in children {
                     if let TmplAst::Slot { name, children } = child {
                         // Render the slot children into Html
                         let slot_child_fns = render_ast(children)?;
+
                         let slot_html = quote! {
                             apex::Html::new(|element| {
                                 #(#slot_child_fns)*
                             })
                         };
+
                         slot_map.insert(name.clone(), slot_html);
                     } else {
                         non_slot_children.push(child.clone());
@@ -366,6 +370,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
 
                 for (key, value) in attributes {
                     let method_name = syn::Ident::new(key, proc_macro2::Span::call_site());
+
                     let value_expr = match value {
                         Attribute::Literal(literal) => {
                             quote! { #literal.to_string() }
@@ -392,6 +397,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                             }
                         }
                     };
+
                     builder_chain = quote! { #builder_chain.#method_name(#value_expr) };
                 }
 
@@ -401,53 +407,46 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                     builder_chain = quote! { #builder_chain.#method_name(#slot_html) };
                 }
 
+                // Generate children Html if non-slot children exist (for default slot)
+                if !non_slot_children.is_empty() {
+                    println!("non_slot_children: {non_slot_children:?}");
+                    let child_fns = render_ast(&non_slot_children)?;
+
+                    let children_html = quote! {
+                        apex::Html::new(|element| {
+                            #(#child_fns)*
+                        })
+                    };
+
+                    builder_chain = quote! { #builder_chain.children(#children_html) };
+                }
+
                 // Complete the builder chain with .build()
                 let component_instance = quote! { #builder_chain.build() };
-
-                // Generate children Html if non-slot children exist (for default slot)
-                let children_code = if !non_slot_children.is_empty() {
-                    let child_fns = render_ast(&non_slot_children)?;
-                    Some(quote! {
-                        let children_html = apex::Html::new(|element| {
-                            #(#child_fns)*
-                        });
-                    })
-                } else {
-                    None
-                };
-
-                // Generate the render call and mount
-                let render_and_mount = if children_code.is_some() {
-                    quote! {
-                        #children_code
-                        let component_html = component_instance.render();
-                        component_html.mount(Some(&element));
-                    }
-                } else {
-                    quote! {
-                        let component_html = component_instance.render();
-                        component_html.mount(Some(&element));
-                    }
-                };
 
                 result.push(quote! {
                     {
                         let component_instance = #component_instance;
-                        #render_and_mount
+                        let component_html = component_instance.render();
+                        component_html.mount(Some(&element));
                     }
                 });
-            }
-            TmplAst::Slot { .. } => {
-                // Slot nodes are not rendered directly; they are passed to components
             }
             TmplAst::SlotInterpolation { slot_name } => {
-                let slot_ident = syn::Ident::new(slot_name, proc_macro2::Span::call_site());
+                let slot_name = syn::Ident::new(slot_name, proc_macro2::Span::call_site());
+
                 result.push(quote! {
                     {
-                        // Mount the slot content directly into the current element
-                        #slot_ident.mount(Some(&element));
+                        let slot_html = &#slot_name;
+                        slot_html.mount(Some(&element));
                     }
                 });
+            }
+            TmplAst::Slot {
+                name: _,
+                children: _,
+            } => {
+                // Slots are not rendered directly, they are passed to components
             }
         }
     }

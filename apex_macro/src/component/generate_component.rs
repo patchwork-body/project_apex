@@ -39,7 +39,10 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
             quote! {
                 pub #name: apex::Html
             }
-        }));
+        }))
+        .chain([quote! {
+            children: Option<apex::Html>
+        }]);
 
     // Generate builder struct fields (Option for all)
     let builder_fields = props
@@ -51,12 +54,19 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
                 #name: Option<#ty>
             }
         })
-        .chain(slots.iter().map(|slot| {
-            let name = &slot.name;
-            quote! {
-                #name: Option<apex::Html>
-            }
-        }));
+        .chain(
+            slots
+                .iter()
+                .map(|slot| {
+                    let name = &slot.name;
+                    quote! {
+                        #name: Option<apex::Html>
+                    }
+                })
+                .chain([quote! {
+                    children: Option<apex::Html>
+                }]),
+        );
 
     // Generate builder setter methods
     let builder_setters = props
@@ -71,15 +81,25 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
                 }
             }
         })
-        .chain(slots.iter().map(|slot| {
-            let name = &slot.name;
-            quote! {
-                pub fn #name(mut self, value: apex::Html) -> Self {
-                    self.#name = Some(value);
-                    self
-                }
-            }
-        }));
+        .chain(
+            slots
+                .iter()
+                .map(|slot| {
+                    let name = &slot.name;
+                    quote! {
+                        pub fn #name(mut self, value: apex::Html) -> Self {
+                            self.#name = Some(value);
+                            self
+                        }
+                    }
+                })
+                .chain([quote! {
+                    pub fn children(mut self, value: apex::Html) -> Self {
+                        self.children = Some(value);
+                        self
+                    }
+                }]),
+        );
 
     // Generate builder build method
     let build_field_inits = props
@@ -109,7 +129,10 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
                     #name: self.#name.expect(&format!("Required slot '{}' not set", #name_str))
                 }
             }
-        }));
+        }))
+        .chain([quote! {
+            children: self.children.clone()
+        }]);
 
     // Generate local variable bindings for props and slots in render method
     let prop_bindings = props
@@ -137,7 +160,10 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
         .chain(slots.iter().map(|slot| {
             let name = &slot.name;
             quote! { #name: None }
-        }));
+        }))
+        .chain([quote! {
+            children: None
+        }]);
 
     // Generate the component struct and impl
     let output = if props.is_empty() && slots.is_empty() {

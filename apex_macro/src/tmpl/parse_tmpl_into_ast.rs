@@ -21,7 +21,7 @@ fn is_slot(tag_name: &str) -> bool {
 
 /// Extracts slot name from tag name (removes # prefix)
 fn extract_slot_name(tag_name: &str) -> String {
-    tag_name[1..].to_string()
+    tag_name[1..].trim().to_owned()
 }
 
 /// Detects if an expression is a slot interpolation (starts with @)
@@ -31,7 +31,7 @@ fn is_slot_interpolation(expr: &str) -> bool {
 
 /// Extracts slot name from slot interpolation (removes @ prefix)
 fn extract_slot_interpolation_name(expr: &str) -> String {
-    expr.trim()[1..].to_string()
+    expr.trim()[1..].trim().to_owned()
 }
 
 /// Splits an expression into multiple parts, separating signals from literals
@@ -154,6 +154,7 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                         brace_depth += 1;
                     } else if ch == '}' {
                         brace_depth -= 1;
+
                         if brace_depth == 0 {
                             chars.next(); // consume closing '}'
                             break;
@@ -320,6 +321,7 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Resul
                 result.extend(split_expression_into_parts(&expr));
             } else if is_slot_interpolation(&expr) {
                 let slot_name = extract_slot_interpolation_name(&expr);
+                println!("slot_name: {slot_name}");
                 result.push(TmplAst::SlotInterpolation { slot_name });
             } else {
                 result.push(TmplAst::Expression(expr));

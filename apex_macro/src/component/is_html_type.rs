@@ -9,5 +9,6 @@ pub(crate) fn is_html_type(ty: &Type) -> bool {
             return segment.ident == "Html";
         }
     }
+
     false
 }
