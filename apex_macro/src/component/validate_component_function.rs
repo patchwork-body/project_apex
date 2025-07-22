@@ -1,9 +1,8 @@
-use syn::{FnArg, ItemFn, Pat, Result, ReturnType};
-
 use crate::component::is_html_type;
+use syn::{FnArg, ItemFn, Pat, ReturnType};
 
 /// Validate that the function has the correct signature for a component
-pub(crate) fn validate_component_function(input: &ItemFn) -> Result<()> {
+pub(crate) fn validate_component_function(input: &ItemFn) {
     // Check that all parameters have #[prop] or #[slot] attribute
     for arg in &input.sig.inputs {
         match arg {
@@ -15,6 +14,7 @@ pub(crate) fn validate_component_function(input: &ItemFn) -> Result<()> {
                         .map(|ident| ident == "prop")
                         .unwrap_or(false)
                 });
+
                 let has_slot_attr = pat_type.attrs.iter().any(|attr| {
                     attr.path()
                         .get_ident()
@@ -29,19 +29,13 @@ pub(crate) fn validate_component_function(input: &ItemFn) -> Result<()> {
                         _ => "parameter".to_owned(),
                     };
 
-                    return Err(syn::Error::new_spanned(
-                        pat_type,
-                        format!(
-                            "Component parameter '{param_name}' must have #[prop] or #[slot] attribute"
-                        ),
-                    ));
+                    panic!(
+                        "Component parameter '{param_name}' must have #[prop] or #[slot] attribute"
+                    );
                 }
             }
             FnArg::Receiver(_) => {
-                return Err(syn::Error::new_spanned(
-                    arg,
-                    "Component functions cannot have self parameter",
-                ));
+                panic!("Component functions cannot have self parameter");
             }
         }
     }
@@ -51,19 +45,11 @@ pub(crate) fn validate_component_function(input: &ItemFn) -> Result<()> {
         ReturnType::Type(_, ty) => {
             // Check if return type is Html (simple check, could be improved)
             if !is_html_type(ty) {
-                return Err(syn::Error::new_spanned(
-                    ty,
-                    "Component functions must return Html",
-                ));
+                panic!("Component functions must return Html");
             }
         }
         ReturnType::Default => {
-            return Err(syn::Error::new_spanned(
-                &input.sig,
-                "Component functions must have an explicit Html return type",
-            ));
+            panic!("Component functions must have an explicit Html return type");
         }
     }
-
-    Ok(())
 }

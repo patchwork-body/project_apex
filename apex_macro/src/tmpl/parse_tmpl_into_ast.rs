@@ -1,5 +1,4 @@
 use std::{collections::HashMap, str::Chars};
-use syn::Result;
 
 use crate::tmpl::{Attribute, TmplAst};
 
@@ -45,7 +44,7 @@ fn split_expression_into_parts(expr: &str) -> Vec<TmplAst> {
     vec![TmplAst::Expression(expr.to_owned())]
 }
 
-pub(crate) fn parse_tmpl_into_ast(input: &str) -> Result<Vec<TmplAst>> {
+pub(crate) fn parse_tmpl_into_ast(input: &str) -> Vec<TmplAst> {
     let mut ast = Vec::new();
     let mut chars = input.chars().peekable();
 
@@ -64,19 +63,19 @@ pub(crate) fn parse_tmpl_into_ast(input: &str) -> Result<Vec<TmplAst>> {
         }
 
         if chars.peek() == Some(&'<') {
-            if let Some(element) = parse_element(&mut chars)? {
+            if let Some(element) = parse_element(&mut chars) {
                 ast.push(element);
             }
         } else {
-            let content = parse_text_or_expression(&mut chars)?;
+            let content = parse_text_or_expression(&mut chars);
             ast.extend(content);
         }
     }
 
-    Ok(ast)
+    ast
 }
 
-fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<TmplAst>> {
+fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Option<TmplAst> {
     // Consume '<'
     chars.next();
 
@@ -248,12 +247,12 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
                 }
 
                 // Not our closing tag, parse as child element
-                if let Some(child) = parse_element(chars)? {
+                if let Some(child) = parse_element(chars) {
                     children.push(child);
                 }
             } else {
                 // Parse text or expression
-                let parsed_children = parse_text_or_expression(chars)?;
+                let parsed_children = parse_text_or_expression(chars);
                 children.extend(parsed_children);
             }
         }
@@ -262,13 +261,13 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
     // If this element is a slot (starts with #), treat it as a Slot node
     if is_slot(&tag_name) {
         let slot_name = extract_slot_name(&tag_name);
-        return Ok(Some(TmplAst::Slot {
+        return Some(TmplAst::Slot {
             name: slot_name,
             children,
-        }));
+        });
     }
 
-    Ok(Some(if is_component(&tag_name) {
+    Some(if is_component(&tag_name) {
         TmplAst::Component {
             name: tag_name,
             attributes,
@@ -281,10 +280,10 @@ fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Option<Tm
             self_closing,
             children,
         }
-    }))
+    })
 }
 
-fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Result<Vec<TmplAst>> {
+fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Vec<TmplAst> {
     let mut result = Vec::new();
     let mut content = String::new();
 
@@ -336,7 +335,7 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Resul
         result.push(TmplAst::Text(content));
     }
 
-    Ok(result)
+    result
 }
 
 #[cfg(test)]
@@ -348,7 +347,7 @@ mod tests {
     #[test]
     fn test_one_element() {
         let input = "<div>Hello, world!</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -366,7 +365,7 @@ mod tests {
     #[test]
     fn test_one_element_with_attribute() {
         let input = "<div class=\"container\">Hello, world!</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
         assert_eq!(
@@ -386,7 +385,7 @@ mod tests {
     #[test]
     fn test_one_element_with_attribute_and_expression() {
         let input = "<div class=\"container\">Hello, {name}!</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
         assert_eq!(
@@ -410,7 +409,7 @@ mod tests {
     #[test]
     fn test_one_element_with_attribute_and_expression_and_event_listener() {
         let input = "<div class=\"container\" onclick={handleClick}>Hello, {name}!</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
         assert_eq!(
@@ -440,7 +439,7 @@ mod tests {
     #[test]
     fn test_several_elements_on_the_same_level() {
         let input = "<div>Hello, world!</div><div>Hello, world!</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 2);
 
@@ -468,7 +467,7 @@ mod tests {
     #[test]
     fn test_nested_elements() {
         let input = "<div><div>Hello, world!</div></div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -491,7 +490,7 @@ mod tests {
     #[test]
     fn test_dynamic_attrs() {
         let input = "<div class={class}></div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -512,7 +511,7 @@ mod tests {
     #[test]
     fn test_signal_expression() {
         let input = "<div>Hello, {$name}!</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -534,7 +533,7 @@ mod tests {
     #[test]
     fn test_mixed_expressions() {
         let input = "<div>{$count} items: {message}</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -556,7 +555,7 @@ mod tests {
     #[test]
     fn test_complex_signal_expression() {
         let input = "<div>Counter: {1 + $counter - 2 + $another_counter}</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -577,7 +576,7 @@ mod tests {
     #[test]
     fn test_signal_expression_with_other_literals() {
         let input = "<div>{$count + 1}</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -595,7 +594,7 @@ mod tests {
     #[test]
     fn test_dollar_prefixed_literal_will_not_ba_parsed_as_signals() {
         let input = "<div>$count</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -613,7 +612,7 @@ mod tests {
     #[test]
     fn test_slot_interpolation() {
         let input = "<div>{@slotName}</div>";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 
@@ -633,7 +632,7 @@ mod tests {
     #[test]
     fn test_component() {
         let input = "<HelloWorld />";
-        let ast = parse_tmpl_into_ast(input).unwrap();
+        let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
 

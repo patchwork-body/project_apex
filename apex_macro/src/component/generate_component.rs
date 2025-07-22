@@ -1,5 +1,6 @@
+use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{ItemFn, Result};
+use syn::ItemFn;
 
 use crate::component::{
     parse_props::parse_props, parse_slots::parse_slots, to_pascal_case::to_pascal_case,
@@ -7,9 +8,9 @@ use crate::component::{
 };
 
 /// Generate a component from a function
-pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStream> {
+pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
     // Validate the function signature
-    validate_component_function(&input)?;
+    validate_component_function(&input);
 
     // Extract function details
     let fn_name = &input.sig.ident;
@@ -41,7 +42,7 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
             }
         }))
         .chain([quote! {
-            children: Option<apex::Html>
+            pub children: Option<apex::Html>
         }]);
 
     // Generate builder struct fields (Option for all)
@@ -54,19 +55,15 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
                 #name: Option<#ty>
             }
         })
-        .chain(
-            slots
-                .iter()
-                .map(|slot| {
-                    let name = &slot.name;
-                    quote! {
-                        #name: Option<apex::Html>
-                    }
-                })
-                .chain([quote! {
-                    children: Option<apex::Html>
-                }]),
-        );
+        .chain(slots.iter().map(|slot| {
+            let name = &slot.name;
+            quote! {
+                #name: Option<apex::Html>
+            }
+        }))
+        .chain([quote! {
+            children: Option<apex::Html>
+        }]);
 
     // Generate builder setter methods
     let builder_setters = props
@@ -148,7 +145,10 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
             quote! {
                 let #name = self.#name.clone();
             }
-        }));
+        }))
+        .chain([quote! {
+            let children = self.children.clone();
+        }]);
 
     // Generate builder default field values
     let builder_default_fields = props
@@ -166,72 +166,44 @@ pub(crate) fn generate_component(input: ItemFn) -> Result<proc_macro2::TokenStre
         }]);
 
     // Generate the component struct and impl
-    let output = if props.is_empty() && slots.is_empty() {
-        // No props or slots - generate unit struct with builder for consistency
-        quote! {
-            #vis struct #struct_name;
+    let output = quote! {
+        #vis struct #struct_name {
+            #(#struct_fields),*
+        }
 
-            pub struct #builder_name;
+        pub struct #builder_name {
+            #(#builder_fields),*
+        }
 
-            impl #builder_name {
-                pub fn new() -> Self {
-                    Self
-                }
-
-                pub fn build(self) -> #struct_name {
-                    #struct_name
+        impl #builder_name {
+            pub fn new() -> Self {
+                Self {
+                    #(#builder_default_fields),*
                 }
             }
 
-            impl #struct_name {
-                pub fn builder() -> #builder_name {
-                    #builder_name::new()
-                }
+            #(#builder_setters)*
 
-                pub fn render(&self) -> apex::Html {
-                    #fn_body
+            pub fn build(self) -> #struct_name {
+                #struct_name {
+                    #(#build_field_inits),*
                 }
             }
         }
-    } else {
-        // Has props or slots - generate struct with builder
-        quote! {
-            #vis struct #struct_name {
-                #(#struct_fields),*
+
+        impl #struct_name {
+            pub fn builder() -> #builder_name {
+                #builder_name::new()
             }
+        }
 
-            pub struct #builder_name {
-                #(#builder_fields),*
-            }
-
-            impl #builder_name {
-                pub fn new() -> Self {
-                    Self {
-                        #(#builder_default_fields),*
-                    }
-                }
-
-                #(#builder_setters)*
-
-                pub fn build(self) -> #struct_name {
-                    #struct_name {
-                        #(#build_field_inits),*
-                    }
-                }
-            }
-
-            impl #struct_name {
-                pub fn builder() -> #builder_name {
-                    #builder_name::new()
-                }
-
-                pub fn render(&self) -> apex::Html {
-                    #(#prop_bindings)*
-                    #fn_body
-                }
+        impl apex::View for #struct_name {
+            fn render(&self) -> apex::Html {
+                #(#prop_bindings)*
+                #fn_body
             }
         }
     };
 
-    Ok(output)
+    output
 }

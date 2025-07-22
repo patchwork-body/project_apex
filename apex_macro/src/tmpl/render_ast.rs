@@ -1,6 +1,5 @@
 use crate::tmpl::{Attribute, TmplAst};
 use quote::quote;
-use syn::Result;
 
 fn find_signals(expr: &str) -> Vec<String> {
     let mut signals = Vec::new();
@@ -79,7 +78,7 @@ fn process_text_content(text: &str, ctx: TextContext) -> Option<String> {
     Some(normalized)
 }
 
-pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenStream>> {
+pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
     let mut result = Vec::new();
 
     // Process content with context awareness
@@ -244,7 +243,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                     }
                 }).collect::<Vec<_>>();
 
-                let child_fns = render_ast(children)?;
+                let child_fns = render_ast(children);
 
                 result.push(quote! {
                     {
@@ -351,7 +350,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 for child in children {
                     if let TmplAst::Slot { name, children } = child {
                         // Render the slot children into Html
-                        let slot_child_fns = render_ast(children)?;
+                        let slot_child_fns = render_ast(children);
 
                         let slot_html = quote! {
                             apex::Html::new(|element| {
@@ -409,8 +408,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
 
                 // Generate children Html if non-slot children exist (for default slot)
                 if !non_slot_children.is_empty() {
-                    println!("non_slot_children: {non_slot_children:?}");
-                    let child_fns = render_ast(&non_slot_children)?;
+                    let child_fns = render_ast(&non_slot_children);
 
                     let children_html = quote! {
                         apex::Html::new(|element| {
@@ -428,7 +426,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                     {
                         let component_instance = #component_instance;
                         let component_html = component_instance.render();
-                        component_html.mount(Some(&element));
+                        component_html.mount(Some(&element)).expect("Failed to mount component");
                     }
                 });
             }
@@ -438,7 +436,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
                 result.push(quote! {
                     {
                         let slot_html = &#slot_name;
-                        slot_html.mount(Some(&element));
+                        slot_html.mount(Some(&element)).expect("Failed to mount slot");
                     }
                 });
             }
@@ -451,5 +449,5 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Result<Vec<proc_macro2::TokenSt
         }
     }
 
-    Ok(result)
+    result
 }

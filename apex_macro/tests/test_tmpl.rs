@@ -1,16 +1,12 @@
 #![allow(missing_docs)]
-#![allow(unused)]
 
-use apex::{Html, signal, tmpl, web_sys};
-use std::sync::Once;
+use apex::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread_local;
 use std::{cell::RefCell, rc::Rc};
-use wasm_bindgen_test::wasm_bindgen_test;
+use wasm_bindgen_test::*;
 
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-static INIT: Once = Once::new();
+wasm_bindgen_test_configure!(run_in_browser);
 
 thread_local! {
     static COUNTER: RefCell<AtomicUsize> = const { RefCell::new(AtomicUsize::new(0)) };
@@ -42,146 +38,146 @@ fn mount_tmpl(tmpl: Html) -> (String, impl Fn() -> String) {
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_plain_text() {
+pub fn test_tmpl_renders_plain_text() {
     let tmpl = tmpl! { Hello, world! };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "Hello, world!");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_plain_text_with_interpolation() {
+pub fn test_tmpl_renders_plain_text_with_interpolation() {
     let name = "world";
     let tmpl = tmpl! { Hello, {name}! };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "Hello, world!");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_plain_text_with_interpolation_only() {
+pub fn test_tmpl_renders_plain_text_with_interpolation_only() {
     let name = "world";
     let tmpl = tmpl! { {name} };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "world");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_plain_text_with_interpolation_only_and_whitespace() {
+pub fn test_tmpl_renders_plain_text_with_interpolation_only_and_whitespace() {
     let name = "world";
     let tmpl = tmpl! { { name } };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "world");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_plain_text_with_two_interpolations() {
+pub fn test_tmpl_renders_plain_text_with_two_interpolations() {
     let first_name = "John";
     let second_name = "Doe";
 
     let tmpl = tmpl! { Hello { first_name }, and welcome { second_name }! };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "Hello John, and welcome Doe!");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_empty_div() {
+pub fn test_tmpl_renders_empty_div() {
     let tmpl = tmpl! { <div></div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div></div>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_self_closing_element() {
+pub fn test_tmpl_renders_self_closing_element() {
     let tmpl = tmpl! { <br> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<br>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_div_with_text() {
+pub fn test_tmpl_renders_div_with_text() {
     let tmpl = tmpl! { <div>Hello, world!</div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div>Hello, world!</div>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_div_with_text_and_interpolation() {
+pub fn test_tmpl_renders_div_with_text_and_interpolation() {
     let name = "world";
     let tmpl = tmpl! { <div>Hello, {name}!</div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div>Hello, world!</div>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_div_with_attrs() {
+pub fn test_tmpl_renders_div_with_attrs() {
     let tmpl = tmpl! { <div class="container">Hello, world!</div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div class=\"container\">Hello, world!</div>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_div_with_dynamic_attrs() {
+pub fn test_tmpl_renders_div_with_dynamic_attrs() {
     let class = "container";
     let tmpl = tmpl! { <div class={class}>Hello, world!</div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div class=\"container\">Hello, world!</div>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_div_with_dynamic_interpolation_in_attrs() {
+pub fn test_tmpl_renders_div_with_dynamic_interpolation_in_attrs() {
     let class = "container";
     let tmpl = tmpl! { <div class={format!("{}-{}", class, 1)}></div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div class=\"container-1\"></div>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_div_with_dynamic_attrs_and_text() {
+pub fn test_tmpl_renders_div_with_dynamic_attrs_and_text() {
     let class = "container";
     let name = "world";
     let tmpl = tmpl! { <div class={class}>Hello, {name}!</div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div class=\"container\">Hello, world!</div>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_self_closing_element_with_static_attrs() {
+pub fn test_tmpl_renders_self_closing_element_with_static_attrs() {
     let tmpl = tmpl! { <br class="test"> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<br class=\"test\">");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_self_closing_element_with_dynamic_attrs() {
+pub fn test_tmpl_renders_self_closing_element_with_dynamic_attrs() {
     let class = "test";
     let counter = 1;
     let tmpl = tmpl! { <br class={format!("{class}-{counter}")}> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<br class=\"test-1\">");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_nested_elements() {
+pub fn test_tmpl_renders_nested_elements() {
     let tmpl = tmpl! { <div>
         <div>Hello, world!</div>
         <div>Hello, world!</div>
     </div> };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(
         get_html(),
@@ -190,13 +186,13 @@ fn test_tmpl_renders_nested_elements() {
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_several_elements_on_the_same_level() {
+pub fn test_tmpl_renders_several_elements_on_the_same_level() {
     let tmpl = tmpl! {
         <div>Hello, world 1!</div>
         <div>Hello, world 2!</div>
     };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(
         get_html(),
@@ -205,18 +201,18 @@ fn test_tmpl_renders_several_elements_on_the_same_level() {
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_trimmed_text_with_newlines() {
+pub fn test_tmpl_renders_trimmed_text_with_newlines() {
     let tmpl = tmpl! { <div>
         Hello, world!
     </div> };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div>Hello, world!</div>");
 }
 
 #[wasm_bindgen_test]
-fn test_template_with_spaces_between_expressions() {
+pub fn test_template_with_spaces_between_expressions() {
     let a = "Hello";
     let b = "World";
 
@@ -224,16 +220,16 @@ fn test_template_with_spaces_between_expressions() {
         <p>{a} {b}!</p>
     };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
     assert_eq!(get_html(), "<p>Hello World!</p>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_signal() {
+pub fn test_tmpl_renders_signal() {
     let counter = signal!(0);
     let counter_clone = counter.clone();
     let tmpl = tmpl! { <div>{$counter}</div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div>0</div>");
 
@@ -244,13 +240,13 @@ fn test_tmpl_renders_signal() {
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_signal_with_multiple_signals() {
+pub fn test_tmpl_renders_signal_with_multiple_signals() {
     let counter1 = signal!(0);
     let counter2 = signal!(0);
     let counter1_clone = counter1.clone();
     let counter2_clone = counter2.clone();
     let tmpl = tmpl! { <div>{$counter1} + {$counter2} = {($counter1 + $counter2)}</div> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<div>0 + 0 = 0</div>");
 
@@ -266,15 +262,15 @@ fn test_tmpl_renders_signal_with_multiple_signals() {
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_element_with_event_listener() {
+pub fn test_tmpl_renders_element_with_event_listener() {
     let tmpl = tmpl! { <button onclick={() => {}}>Click me</button> };
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<button>Click me</button>");
 }
 
 #[wasm_bindgen_test]
-fn test_tmpl_renders_element_with_event_listener_with_signal() {
+pub fn test_tmpl_renders_element_with_event_listener_with_signal() {
     use apex::wasm_bindgen::JsCast;
 
     let counter = signal!(0);
@@ -312,7 +308,7 @@ fn test_tmpl_renders_element_with_event_listener_with_signal() {
 }
 
 #[wasm_bindgen_test]
-fn test_new_component_macro() {
+pub fn test_new_component_macro() {
     use apex_macro::component;
 
     #[component]
@@ -330,7 +326,7 @@ fn test_new_component_macro() {
         <SimpleCounter />
     };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(
         get_html(),
@@ -339,7 +335,7 @@ fn test_new_component_macro() {
 }
 
 #[wasm_bindgen_test]
-fn test_component_macro_with_interpolation() {
+pub fn test_component_macro_with_interpolation() {
     use apex_macro::component;
 
     #[component]
@@ -359,7 +355,7 @@ fn test_component_macro_with_interpolation() {
         <GreetingCard />
     };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(
         get_html(),
@@ -368,7 +364,7 @@ fn test_component_macro_with_interpolation() {
 }
 
 #[wasm_bindgen_test]
-fn test_component_macro_with_props() {
+pub fn test_component_macro_with_props() {
     use apex_macro::component;
 
     #[component]
@@ -388,7 +384,7 @@ fn test_component_macro_with_props() {
         <UserCard name={user_name.clone()} age={user_age} />
     };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(
         get_html(),
@@ -397,7 +393,7 @@ fn test_component_macro_with_props() {
 }
 
 #[wasm_bindgen_test]
-fn test_component_macro_with_signal_prop() {
+pub fn test_component_macro_with_signal_prop() {
     use apex::signal::Signal;
     use apex_macro::component;
 
@@ -415,7 +411,7 @@ fn test_component_macro_with_signal_prop() {
         <Counter value={count.clone()} />
     };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     assert_eq!(get_html(), "<button>Count: 42</button>");
 
@@ -424,7 +420,7 @@ fn test_component_macro_with_signal_prop() {
 }
 
 #[wasm_bindgen_test]
-fn test_component_macro_with_signal_as_prop_and_handler() {
+pub fn test_component_macro_with_signal_as_prop_and_handler() {
     use apex::signal::Signal;
     use apex::wasm_bindgen::JsCast;
     use apex_macro::component;
@@ -473,7 +469,7 @@ fn test_component_macro_with_signal_as_prop_and_handler() {
 }
 
 #[wasm_bindgen_test]
-fn test_component_macro_with_optional_props() {
+pub fn test_component_macro_with_optional_props() {
     use apex_macro::component;
 
     #[component]
@@ -492,7 +488,8 @@ fn test_component_macro_with_optional_props() {
     let tmpl1 = tmpl! {
         <Greeting name={"Alice".to_owned()} prefix={"Hi".to_owned()} />
     };
-    let (id1, get_html1) = mount_tmpl(tmpl1);
+    let (_, get_html1) = mount_tmpl(tmpl1);
+
     assert_eq!(
         get_html1(),
         "<div class=\"greeting\"><p>Hi Alice!</p></div>"
@@ -502,7 +499,8 @@ fn test_component_macro_with_optional_props() {
     let tmpl2 = tmpl! {
         <Greeting name={"Bob".to_owned()} />
     };
-    let (id2, get_html2) = mount_tmpl(tmpl2);
+    let (_, get_html2) = mount_tmpl(tmpl2);
+
     assert_eq!(
         get_html2(),
         "<div class=\"greeting\"><p>Hello Bob!</p></div>"
@@ -510,7 +508,7 @@ fn test_component_macro_with_optional_props() {
 }
 
 #[wasm_bindgen_test]
-fn test_component_with_closure_prop() {
+pub fn test_component_with_closure_prop() {
     use apex::signal::Signal;
     use apex::wasm_bindgen::JsCast;
     use apex_macro::component;
@@ -563,7 +561,7 @@ fn test_component_with_closure_prop() {
 }
 
 #[wasm_bindgen_test]
-fn test_component_with_slots() {
+pub fn test_component_with_slots() {
     use apex_macro::component;
 
     #[component]
@@ -600,7 +598,7 @@ fn test_component_with_slots() {
         </CardLayout>
     };
 
-    let (id, get_html) = mount_tmpl(tmpl);
+    let (_, get_html) = mount_tmpl(tmpl);
 
     // The test should pass because slots are being parsed and passed correctly
     // The actual mounting of slot content would require additional template rendering logic
