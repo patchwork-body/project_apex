@@ -302,11 +302,9 @@ pub fn test_component_with_slots() {
 
     let (_, get_html) = mount_tmpl(tmpl);
 
-    // The test should pass because slots are being parsed and passed correctly
-    // The actual mounting of slot content would require additional template rendering logic
     assert_eq!(
         get_html(),
-        "<div class=\"card\"><div class=\"card-header\"><h1>Custom Header</h1></div><h2>My Card</h2><div class=\"card-content\"><p>This is the main content</p></div><div><p>Default footer</p></div></div>"
+        "<div class=\"card\"><div class=\"card-header\"><h1>Custom Header</h1></div><h2>My Card</h2><div class=\"card-content\"><p>This is the main content</p></div><div class=\"card-footer\"><p>Default footer</p></div></div>"
     );
 }
 
