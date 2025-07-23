@@ -61,6 +61,20 @@ impl<T: 'static + Clone> Signal<T> {
     pub fn subscribe_effect(&self, effect_id: usize) {
         self.listeners.borrow_mut().insert(effect_id);
     }
+
+    pub fn derive<U: 'static + Clone, F: Fn(&T) -> U + 'static>(&self, f: F) -> Signal<U> {
+        let derived = Signal::new(f(&self.get()));
+        let this = self.clone();
+        let derived_clone = derived.clone();
+        let effect_id = effect(move || {
+            let value = f(&this.get());
+            derived_clone.set(value);
+        });
+        run_tracked_effect(effect_id, || {
+            run_effect_by_id(effect_id);
+        });
+        derived
+    }
 }
 
 /// Register an effect that runs whenever any of the accessed signals change.
@@ -301,5 +315,19 @@ mod tests {
 
         s.update(|prev| format!("{} 3", prev));
         assert_eq!(s.get(), "Hello, world! 2 3".to_owned());
+    }
+
+    #[test]
+    fn signal_derive() {
+        let count = signal!(2);
+        let double = count.derive(|v| v * 2);
+
+        assert_eq!(double.get(), 4);
+
+        count.set(10);
+        assert_eq!(double.get(), 20);
+
+        count.update(|v| v + 1);
+        assert_eq!(double.get(), 22);
     }
 }

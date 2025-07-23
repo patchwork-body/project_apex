@@ -2,11 +2,17 @@
 ///
 /// Usage examples:
 /// ```rust
+/// use apex::prelude::*;
+///
+/// let count = signal!(0);
+///
 /// // Simplest - auto-captures signal with same name, event available as 'event'
-/// let my_action = action!(count => {
+/// let my_action = action!(count => |event| {
 ///     event.prevent_default();
 ///     count.update(|c| c + 1);
 /// });
+///
+/// let other = signal!("Hello".to_owned());
 ///
 /// // Multiple signals
 /// let my_action = action!(count, other => {
