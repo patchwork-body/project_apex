@@ -45,6 +45,15 @@ fn split_expression_into_parts(expr: &str) -> Vec<TmplAst> {
 }
 
 pub(crate) fn parse_tmpl_into_ast(input: &str) -> Vec<TmplAst> {
+    // Normalize input: remove line breaks and reduce all whitespace to a single space
+    let input = input
+        .replace(['\n', '\r'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_owned();
+
     let mut ast = Vec::new();
     let mut chars = input.chars().peekable();
 
@@ -320,7 +329,6 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Vec<T
                 result.extend(split_expression_into_parts(&expr));
             } else if is_slot_interpolation(&expr) {
                 let slot_name = extract_slot_interpolation_name(&expr);
-                println!("slot_name: {slot_name}");
                 result.push(TmplAst::SlotInterpolation { slot_name });
             } else {
                 result.push(TmplAst::Expression(expr));
@@ -611,7 +619,7 @@ mod tests {
 
     #[test]
     fn test_slot_interpolation() {
-        let input = "<div>{@slotName}</div>";
+        let input = "<div>{@slot_name}</div>";
         let ast = parse_tmpl_into_ast(input);
 
         assert_eq!(ast.len(), 1);
@@ -623,7 +631,7 @@ mod tests {
                 attributes: HashMap::new(),
                 self_closing: false,
                 children: vec![TmplAst::SlotInterpolation {
-                    slot_name: "slotName".to_owned()
+                    slot_name: "slot_name".to_owned()
                 }],
             }
         );
@@ -642,6 +650,53 @@ mod tests {
                 name: "HelloWorld".to_owned(),
                 attributes: HashMap::new(),
                 children: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn test_counter() {
+        let input = "<div><button onclick={inc}>Inc</button><p class=\"count\">{$count}</p><button onclick={dec}>Dec</button></div>";
+
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                self_closing: false,
+                children: vec![
+                    TmplAst::Element {
+                        tag: "button".to_owned(),
+                        attributes: HashMap::from([(
+                            "onclick".to_owned(),
+                            Attribute::EventListener("inc".to_owned())
+                        )]),
+                        self_closing: false,
+                        children: vec![TmplAst::Text("Inc".to_owned()),],
+                    },
+                    TmplAst::Element {
+                        tag: "p".to_owned(),
+                        attributes: HashMap::from([(
+                            "class".to_owned(),
+                            Attribute::Literal("count".to_owned())
+                        )]),
+                        self_closing: false,
+                        children: vec![TmplAst::Signal("$count".to_owned())],
+                    },
+                    TmplAst::Element {
+                        tag: "button".to_owned(),
+                        attributes: HashMap::from([(
+                            "onclick".to_owned(),
+                            Attribute::EventListener("dec".to_owned())
+                        )]),
+                        self_closing: false,
+                        children: vec![TmplAst::Text("Dec".to_owned())],
+                    },
+                ],
             }
         );
     }

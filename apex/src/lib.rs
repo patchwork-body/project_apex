@@ -137,15 +137,13 @@ impl Apex {
     }
 
     /// Hydrate the client-side application with a component
-    pub fn hydrate<T: View>(self, component: T) -> Result<(), wasm_bindgen::JsValue> {
+    pub fn hydrate(self, html: Html) -> Result<(), wasm_bindgen::JsValue> {
         use web_sys::window;
 
         let window = window().ok_or("No global window object")?;
         let document = window.document().ok_or("No document object")?;
 
         let body = document.body().ok_or("No body element")?;
-
-        let html = component.render();
         html.mount(Some(&body))?;
 
         Ok(())

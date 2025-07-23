@@ -4,13 +4,6 @@ use apex::prelude::*;
 use std::rc::Rc;
 
 #[component]
-pub fn button(#[prop] onclick: Rc<dyn Fn()>) -> Html {
-    tmpl! {
-        <button onclick={onclick}>Inc</button>
-    }
-}
-
-#[component]
 pub fn counter() -> Html {
     let count = signal!(0);
 
@@ -31,8 +24,10 @@ pub fn counter() -> Html {
     };
 
     tmpl! {
-        <div>
-            <p>{$count}</p>
+        <div class="counter">
+            <button onclick={inc}>Inc</button>
+            <p class="count">{$count}</p>
+            <button onclick={dec}>Dec</button>
         </div>
     }
 }
