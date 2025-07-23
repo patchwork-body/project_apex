@@ -1,5 +1,8 @@
 #![allow(missing_docs)]
 
+use apex::wasm_bindgen::JsCast;
+use std::rc::Rc;
+
 use apex::prelude::*;
 
 #[component]
@@ -8,6 +11,7 @@ pub fn Button(
     #[prop(default = false)] wide: bool,
     #[prop(default = false)] primary: bool,
     #[prop(default = false)] secondary: bool,
+    #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onclick: Rc<dyn Fn(web_sys::Event)>,
 ) -> Html {
     let mut classes = vec!["button"];
 
@@ -24,7 +28,7 @@ pub fn Button(
     }
 
     tmpl! {
-        <button type="button" class={classes.join(" ")}>
+        <button type="button" class={classes.join(" ")} onclick={onclick}>
             <span class="button-symbol">
                 {&symbol}
             </span>
@@ -34,7 +38,19 @@ pub fn Button(
 
 #[component]
 pub fn calculator() -> Html {
-    let value = signal!(0);
+    let value = signal!("0".to_owned());
+
+    let add_symbol = action!(value => |event| {
+        let symbol = event.current_target().unwrap().dyn_into::<web_sys::HtmlButtonElement>().unwrap().inner_text();
+
+        value.update(|v| {
+            if v == "0" {
+                symbol
+            } else {
+                format!("{v}{symbol}")
+            }
+        });
+    });
 
     tmpl! {
         <div class="calculator">
@@ -43,24 +59,24 @@ pub fn calculator() -> Html {
             </div>
 
             <div class="buttons">
-                <Button secondary={true} symbol={if value.get() == 0 { "AC".to_string() } else { "<-".to_string() }} />
+                <Button secondary={true} symbol={if value.get() == "0" { "AC".to_string() } else { "<-".to_string() }} />
                 <Button secondary={true} symbol="±" />
                 <Button secondary={true} symbol="%" />
                 <Button primary={true} symbol="÷" />
-                <Button symbol="7" />
-                <Button symbol="8" />
-                <Button symbol="9" />
+                <Button symbol="7" onclick={add_symbol.clone()} />
+                <Button symbol="8" onclick={add_symbol.clone()} />
+                <Button symbol="9" onclick={add_symbol.clone()} />
                 <Button primary={true} symbol="×" />
-                <Button symbol="4" />
-                <Button symbol="5" />
-                <Button symbol="6" />
+                <Button symbol="4" onclick={add_symbol.clone()} />
+                <Button symbol="5" onclick={add_symbol.clone()} />
+                <Button symbol="6" onclick={add_symbol.clone()} />
                 <Button primary={true} symbol="-" />
-                <Button symbol="1" />
-                <Button symbol="2" />
-                <Button symbol="3" />
+                <Button symbol="1" onclick={add_symbol.clone()} />
+                <Button symbol="2" onclick={add_symbol.clone()} />
+                <Button symbol="3" onclick={add_symbol.clone()} />
                 <Button primary={true} symbol="+" />
-                <Button wide={true} symbol="0" />
-                <Button symbol="." />
+                <Button wide={true} symbol="0" onclick={add_symbol.clone()} />
+                <Button symbol="." onclick={add_symbol.clone()} />
                 <Button primary={true} symbol="=" />
             </div>
         </div>

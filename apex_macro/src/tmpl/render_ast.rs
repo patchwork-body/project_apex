@@ -223,9 +223,9 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                                         use apex::web_sys::*;
 
                                         let handler_fn = (#handler_tokens).clone();
-                                        let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
-                                            handler_fn();
-                                        }) as Box<dyn FnMut(_)>);
+                                        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                                            handler_fn(event);
+                                        }) as Box<dyn FnMut(web_sys::Event)>);
 
                                         let _ = new_element.add_event_listener_with_callback(
                                             #event_name,

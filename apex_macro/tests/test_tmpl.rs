@@ -249,7 +249,7 @@ pub fn test_tmpl_renders_element_with_event_listener_with_signal() {
     let inc = {
         let counter = counter.clone();
 
-        move || {
+        move |_event: web_sys::Event| {
             counter.update(|counter| counter + 1);
         }
     };

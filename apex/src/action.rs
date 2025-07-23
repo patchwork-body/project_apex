@@ -2,62 +2,91 @@
 ///
 /// Usage examples:
 /// ```rust
-/// // Simplest - auto-captures signal with same name
-/// let my_action = action!(count => { count.update(|c| c + 1); });
+/// // Simplest - auto-captures signal with same name, event available as 'event'
+/// let my_action = action!(count => {
+///     event.prevent_default();
+///     count.update(|c| c + 1);
+/// });
 ///
 /// // Multiple signals
-/// let my_action = action!(count, other => { count.update(|c| c + 1); });
+/// let my_action = action!(count, other => {
+///     count.update(|c| c + 1);
+/// });
 ///
 /// // Custom variable names
-/// let my_action = action!(count as c => { c.update(|x| x + 1); });
+/// let my_action = action!(count as c => {
+///     c.update(|x| x + 1);
+/// });
+///
+/// // Custom event variable name
+/// let my_action = action!(count => |e| {
+///     e.prevent_default();
+///     count.update(|c| c + 1);
+/// });
 /// ```
 #[macro_export]
 macro_rules! action {
-    // Simplest case - single signal, auto-capture with same name
+    // Simplest case - single signal, auto-capture with same name, event as 'event'
     ($signal:ident => $body:block) => {
         {
             let $signal = $signal.clone();
-            ::std::rc::Rc::new(move || $body)
+            ::std::rc::Rc::new(move |event: web_sys::Event| $body)
         }
     };
 
-    // Multiple signals, auto-capture with same names
+    // Multiple signals, auto-capture with same names, event as 'event'
     ($($signal:ident),+ => $body:block) => {
         {
             $(let $signal = $signal.clone();)+
-            ::std::rc::Rc::new(move || $body)
+            ::std::rc::Rc::new(move |event: web_sys::Event| $body)
         }
     };
 
-    // Single signal with custom variable name
+    // Single signal with custom variable name, event as 'event'
     ($signal:ident as $captured:ident => $body:block) => {
         {
             let $captured = $signal.clone();
-            ::std::rc::Rc::new(move || $body)
+            ::std::rc::Rc::new(move |event: web_sys::Event| $body)
         }
     };
 
-    // Multiple signals with custom variable names
+    // Multiple signals with custom variable names, event as 'event'
     ($($signal:ident as $captured:ident),+ => $body:block) => {
         {
             $(let $captured = $signal.clone();)+
-            ::std::rc::Rc::new(move || $body)
+            ::std::rc::Rc::new(move |event: web_sys::Event| $body)
         }
     };
 
-    // Legacy support - explicit closure parameter syntax
-    ($signal:ident => |$captured:ident| $body:block) => {
+    // Single signal with custom event parameter name
+    ($signal:ident => |$event_param:ident| $body:block) => {
+        {
+            let $signal = $signal.clone();
+            ::std::rc::Rc::new(move |$event_param: web_sys::Event| $body)
+        }
+    };
+
+    // Multiple signals with custom event parameter name
+    ($($signal:ident),+ => |$event_param:ident| $body:block) => {
+        {
+            $(let $signal = $signal.clone();)+
+            ::std::rc::Rc::new(move |$event_param: web_sys::Event| $body)
+        }
+    };
+
+    // Single signal with custom names for both signal and event
+    ($signal:ident as $captured:ident => |$event_param:ident| $body:block) => {
         {
             let $captured = $signal.clone();
-            ::std::rc::Rc::new(move || $body)
+            ::std::rc::Rc::new(move |$event_param: web_sys::Event| $body)
         }
     };
 
-    // Legacy support - multiple signals with explicit parameters
-    ($($signal:ident),+ => |$($captured:ident),+| $body:block) => {
+    // Multiple signals with custom names and custom event parameter
+    ($($signal:ident as $captured:ident),+ => |$event_param:ident| $body:block) => {
         {
             $(let $captured = $signal.clone();)+
-            ::std::rc::Rc::new(move || $body)
+            ::std::rc::Rc::new(move |$event_param: web_sys::Event| $body)
         }
     };
 }

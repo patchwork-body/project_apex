@@ -129,13 +129,9 @@ pub fn test_component_macro_with_signal_as_prop_and_handler() {
 
     #[component]
     fn counter(#[prop] value: Signal<u32>) -> Html {
-        let inc = {
-            let value = value.clone();
-
-            move || {
-                value.update(|v| v + 1);
-            }
-        };
+        let inc = action!(value => {
+            value.update(|v| v + 1);
+        });
 
         tmpl! {
             <button onclick={inc}>Count: {$value}</button>
@@ -216,7 +212,7 @@ pub fn test_component_with_closure_prop() {
     use apex_macro::component;
 
     #[component]
-    fn counter(#[prop] value: Signal<u32>, #[prop] on_inc: Rc<dyn Fn()>) -> Html {
+    fn counter(#[prop] value: Signal<u32>, #[prop] on_inc: Rc<dyn Fn(web_sys::Event)>) -> Html {
         tmpl! {
             <button onclick={on_inc}>Count: {$value}</button>
         }
@@ -229,7 +225,7 @@ pub fn test_component_with_closure_prop() {
         let inc = {
             let count = count.clone();
 
-            Rc::new(move || {
+            Rc::new(move |_event: web_sys::Event| {
                 count.update(|v| v + 1);
             })
         };
@@ -319,7 +315,7 @@ pub fn test_counter_component() {
         let inc = {
             let counter = counter.clone();
 
-            Rc::new(move || {
+            Rc::new(move |_event: web_sys::Event| {
                 counter.update(|counter| counter + 1);
             })
         };
@@ -327,7 +323,7 @@ pub fn test_counter_component() {
         let dec = {
             let counter = counter.clone();
 
-            Rc::new(move || {
+            Rc::new(move |_event: web_sys::Event| {
                 counter.update(|counter| counter - 1);
             })
         };
