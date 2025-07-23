@@ -9,7 +9,9 @@ pub use wasm_bindgen;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 pub use web_sys;
+use web_sys::window;
 
+pub mod action;
 pub mod signal;
 
 /// Trait that defines the view layer for components
@@ -97,6 +99,7 @@ impl TryFrom<String> for Html {
 impl From<&str> for Html {
     fn from(content: &str) -> Self {
         let owned_content = content.to_string();
+
         Html {
             callback: Rc::new(Closure::new(Box::new(move |element: web_sys::Element| {
                 element.set_inner_html(&owned_content);
@@ -107,12 +110,11 @@ impl From<&str> for Html {
 
 impl std::fmt::Display for Html {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use web_sys::window;
-
         if let Some(window) = window() {
             if let Some(document) = window.document() {
                 if let Ok(temp_element) = document.create_element("div") {
                     let func: &js_sys::Function = self.callback.as_ref().as_ref().unchecked_ref();
+
                     if func
                         .call1(&wasm_bindgen::JsValue::NULL, &temp_element.clone().into())
                         .is_ok()
@@ -122,6 +124,7 @@ impl std::fmt::Display for Html {
                 }
             }
         }
+
         write!(f, "")
     }
 }
@@ -138,8 +141,6 @@ impl Apex {
 
     /// Hydrate the client-side application with a component
     pub fn hydrate(self, html: Html) -> Result<(), wasm_bindgen::JsValue> {
-        use web_sys::window;
-
         let window = window().ok_or("No global window object")?;
         let document = window.document().ok_or("No document object")?;
 
