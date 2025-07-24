@@ -63,16 +63,19 @@ impl<T: 'static + Clone> Signal<T> {
     }
 
     pub fn derive<U: 'static + Clone, F: Fn(&T) -> U + 'static>(&self, f: F) -> Signal<U> {
-        let derived = Signal::new(f(&self.get()));
+        let derived = Signal::new(f(&self.value.borrow()));
         let this = self.clone();
         let derived_clone = derived.clone();
+
         let effect_id = effect(move || {
             let value = f(&this.get());
             derived_clone.set(value);
         });
+
         run_tracked_effect(effect_id, || {
             run_effect_by_id(effect_id);
         });
+
         derived
     }
 }
@@ -146,6 +149,22 @@ macro_rules! effect {
         $crate::signal::run_tracked_effect(effect_id, || {
             $crate::signal::run_effect_by_id(effect_id);
         });
+    }};
+}
+
+/// Macro for creating derived signals from other signals
+#[macro_export]
+macro_rules! derive {
+    ( $($sig:ident),+ , $body:block ) => {{
+        $(let $sig = $sig.clone();)+
+        let derived_signal = Signal::new(Default::default());
+        let derived_signal_clone = derived_signal.clone();
+
+        $crate::effect!({
+            derived_signal_clone.set($body);
+        });
+
+        derived_signal
     }};
 }
 
@@ -335,5 +354,48 @@ mod tests {
 
         count.update(|v| v + 1);
         assert_eq!(double.get(), 22);
+    }
+
+    #[test]
+    fn derive_macro_single_signal() {
+        let base = signal!(10);
+
+        let double = derive!(base, { base.get() * 2 });
+        assert_eq!(double.get(), 20);
+
+        base.set(7);
+        assert_eq!(double.get(), 14);
+
+        base.update(|v| v + 1);
+        assert_eq!(double.get(), 16);
+    }
+
+    #[test]
+    fn derive_macro_multiple_signals() {
+        let a = signal!(3);
+        let b = signal!(4);
+
+        let sum = derive!(a, b, { a.get() + b.get() });
+        assert_eq!(sum.get(), 7);
+
+        a.set(10);
+        assert_eq!(sum.get(), 14);
+
+        b.set(20);
+        assert_eq!(sum.get(), 30);
+
+        a.update(|v| v * 2);
+        assert_eq!(sum.get(), 40);
+    }
+
+    #[test]
+    fn derive_macro_string_signal() {
+        let s = signal!("foo".to_owned());
+
+        let upper = derive!(s, { s.get().to_uppercase() });
+        assert_eq!(upper.get(), "FOO");
+
+        s.set("Bar".to_owned());
+        assert_eq!(upper.get(), "BAR");
     }
 }
