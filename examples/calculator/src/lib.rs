@@ -2,6 +2,7 @@
 
 use apex::wasm_bindgen::JsCast;
 use std::rc::Rc;
+use wasm_bindgen::prelude::Closure;
 
 use apex::prelude::*;
 
@@ -12,6 +13,8 @@ pub fn button(
     #[prop(default = false)] primary: bool,
     #[prop(default = false)] secondary: bool,
     #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onclick: Rc<dyn Fn(web_sys::Event)>,
+    #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onmousedown: Rc<dyn Fn(web_sys::Event)>,
+    #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onmouseup: Rc<dyn Fn(web_sys::Event)>,
 ) -> Html {
     let mut classes = vec!["button"];
 
@@ -28,7 +31,7 @@ pub fn button(
     }
 
     tmpl! {
-        <button type="button" class={classes.join(" ")} onclick={onclick}>
+        <button type="button" class={classes.join(" ")} onclick={onclick} onmousedown={onmousedown} onmouseup={onmouseup}>
             <span class="button-symbol">
                 {$symbol}
             </span>
@@ -60,6 +63,44 @@ pub fn calculator() -> Html {
         }
     });
 
+    let timeout_id = signal!(None::<i32>);
+
+    let remove_last_symbol = action!(value, timeout_id => |_event| {
+        if let Some(id) = timeout_id.get() {
+            web_sys::window().unwrap().clear_timeout_with_handle(id);
+        }
+
+        value.update(|v| {
+            if v.len() == 1 {
+                "0".to_owned()
+            } else {
+                let mut v = v.clone();
+                v.pop();
+                v
+            }
+        });
+    });
+
+    let set_timeout_to_clear_value = action!(value, timeout_id => |_event| {
+        let value = value.clone();
+
+        let closure = Closure::wrap(Box::new(move || {
+            value.set("0".to_owned());
+        }) as Box<dyn Fn()>);
+
+        let id = web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                closure.as_ref().unchecked_ref(),
+                1000,
+            )
+            .unwrap();
+
+        timeout_id.set(Some(id));
+
+        closure.forget(); // Prevent the closure from being dropped
+    });
+
     tmpl! {
         <div class="calculator">
             <div class="display">
@@ -67,7 +108,7 @@ pub fn calculator() -> Html {
             </div>
 
             <div class="buttons">
-                <Button secondary={true} symbol={clear_symbol.clone()} />
+                <Button secondary={true} symbol={clear_symbol.clone()} onmousedown={set_timeout_to_clear_value.clone()} onmouseup={remove_last_symbol.clone()} />
                 <Button secondary={true} symbol="±" />
                 <Button secondary={true} symbol="%" />
                 <Button primary={true} symbol="÷" />

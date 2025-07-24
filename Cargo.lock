@@ -212,6 +212,7 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper",
+ "js-sys",
  "sqlx",
  "tokio",
  "tower",
