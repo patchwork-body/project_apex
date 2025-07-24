@@ -363,3 +363,32 @@ pub fn test_counter_component() {
         "<div><button id=\"inc\">Inc</button><p class=\"counter\">1</p><button id=\"dec\">Dec</button></div>"
     );
 }
+
+#[wasm_bindgen_test]
+pub fn test_component_with_string_prop_that_passed_as_signal() {
+    use apex_macro::component;
+
+    #[component]
+    fn echo(#[prop] text: Signal<String>) -> Html {
+        tmpl! {
+            <span>{$text}</span>
+        }
+    }
+
+    let text = signal!("Hello".to_owned());
+    let text_clone = text.clone();
+
+    let tmpl = tmpl! {
+        <Echo text={text.clone()} />
+    };
+
+    let (_, get_html) = mount_tmpl(tmpl);
+
+    assert_eq!(get_html(), "<span>Hello</span>");
+
+    text_clone.set("World".to_owned());
+    assert_eq!(get_html(), "<span>World</span>");
+
+    text_clone.set("Hello".to_owned());
+    assert_eq!(get_html(), "<span>Hello</span>");
+}

@@ -372,7 +372,9 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
 
                     let value_expr = match value {
                         Attribute::Literal(literal) => {
-                            quote! { #literal.to_string() }
+                            quote! {
+                                #literal.into()
+                            }
                         }
                         Attribute::Expression(expr) => {
                             if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {

@@ -77,6 +77,12 @@ impl<T: 'static + Clone> Signal<T> {
     }
 }
 
+impl From<&str> for Signal<String> {
+    fn from(s: &str) -> Self {
+        Signal::new(s.to_owned())
+    }
+}
+
 /// Register an effect that runs whenever any of the accessed signals change.
 pub fn effect<F: Fn() + 'static>(f: F) -> usize {
     // Assign a unique id to this effect

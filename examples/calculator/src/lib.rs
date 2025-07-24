@@ -6,8 +6,8 @@ use std::rc::Rc;
 use apex::prelude::*;
 
 #[component]
-pub fn Button(
-    #[prop] symbol: String,
+pub fn button(
+    #[prop] symbol: Signal<String>,
     #[prop(default = false)] wide: bool,
     #[prop(default = false)] primary: bool,
     #[prop(default = false)] secondary: bool,
@@ -30,7 +30,7 @@ pub fn Button(
     tmpl! {
         <button type="button" class={classes.join(" ")} onclick={onclick}>
             <span class="button-symbol">
-                {&symbol}
+                {$symbol}
             </span>
         </button>
     }
@@ -52,6 +52,14 @@ pub fn calculator() -> Html {
         });
     });
 
+    let clear_symbol = value.derive(|v| {
+        if v == "0" {
+            "AC".to_owned()
+        } else {
+            "<-".to_owned()
+        }
+    });
+
     tmpl! {
         <div class="calculator">
             <div class="display">
@@ -59,7 +67,7 @@ pub fn calculator() -> Html {
             </div>
 
             <div class="buttons">
-                <Button secondary={true} symbol={if value.get() == "0" { "AC".to_string() } else { "<-".to_string() }} />
+                <Button secondary={true} symbol={clear_symbol.clone()} />
                 <Button secondary={true} symbol="±" />
                 <Button secondary={true} symbol="%" />
                 <Button primary={true} symbol="÷" />
