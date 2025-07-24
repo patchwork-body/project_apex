@@ -42,7 +42,7 @@ pub fn button(
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 enum Operator {
     Add,
     Subtract,
@@ -77,7 +77,7 @@ impl Display for Operator {
 struct Expression {
     left: Option<Box<Expression>>,
     right: String,
-    operator: String,
+    operator: Option<Operator>,
     rank: u8,
     is_negative: bool,
 }
@@ -87,7 +87,7 @@ impl Default for Expression {
         Self {
             left: None,
             right: "0".to_owned(),
-            operator: "".to_owned(),
+            operator: None,
             rank: 0,
             is_negative: false,
         }
@@ -113,24 +113,60 @@ impl Expression {
     }
 
     fn set_operator(&mut self, operator: Operator) {
-        if self.right.is_empty() && operator == Operator::Subtract {
-            self.right = "-".to_owned();
+        if self.operator.is_some() && operator == Operator::Subtract {
+            self.negative_right_value();
         } else {
-            self.operator = operator.to_string();
+            match operator {
+                Operator::Add | Operator::Subtract => {
+                    self.rank = 2;
+                }
+                Operator::Multiply | Operator::Divide => {
+                    self.rank = 1;
+                }
+            }
+
+            self.operator = operator.into();
+            self.left = Box::new(self.clone()).into();
+
+            self.reset();
         }
     }
 
-    fn negative_value(&mut self) {
+    fn reset(&mut self) {
+        self.rank = 0;
+        self.operator = None;
+        self.is_negative = false;
+        self.right = "".to_owned();
+    }
+
+    fn negative_right_value(&mut self) {
         if self.right != "0" || !self.right.is_empty() {
             self.is_negative = !self.is_negative;
         }
     }
 
     fn remove_last_symbol(&mut self) {
-        if self.right.len() == 1 {
+        if self.right.is_empty() && self.left.is_some() {
+            self.replace_right_with_left();
+
+            if self.operator.is_some() {
+                self.operator = None;
+                self.rank = 0;
+            }
+        } else if self.right.len() == 1 {
             self.right = "0".to_owned();
         } else {
             self.right.pop();
+        }
+    }
+
+    fn replace_right_with_left(&mut self) {
+        if let Some(left) = self.left.as_mut() {
+            self.is_negative = left.is_negative;
+            self.right = left.right.clone();
+            self.operator = left.operator.clone();
+            self.rank = left.rank;
+            self.left = left.left.clone();
         }
     }
 }
@@ -204,7 +240,7 @@ pub fn calculator() -> Html {
     let negative_value = action!(expression => |_event| {
         expression.update(|v| {
             let mut v = v.clone();
-            v.negative_value();
+            v.negative_right_value();
             v
         });
     });
@@ -214,12 +250,23 @@ pub fn calculator() -> Html {
         let current_value = expression.get_current_value();
 
         if expression.left.is_none() {
-            format!("{}{}", current_value, expression.operator)
+            format!(
+                "{current_value}{}",
+                expression
+                    .operator
+                    .as_ref()
+                    .map_or("".to_owned(), |op| op.to_string())
+            )
         } else {
+            let left_expression = expression.left.as_ref().unwrap();
+
             format!(
                 "{}{}{}",
-                expression.left.as_ref().unwrap().get_current_value(),
-                expression.operator,
+                left_expression.get_current_value(),
+                left_expression
+                    .operator
+                    .as_ref()
+                    .map_or("".to_owned(), |op| op.to_string()),
                 current_value
             )
         }
