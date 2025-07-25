@@ -187,16 +187,49 @@ impl Expression {
         }
     }
 
+    fn format_with_commas(value: &str) -> String {
+        let (neg, value) = if let Some(stripped) = value.strip_prefix('-') {
+            (true, stripped)
+        } else {
+            (false, value)
+        };
+
+        let mut parts = value.splitn(2, '.');
+        let int_part = parts.next().unwrap_or("");
+        let frac_part = parts.next();
+        let chars: Vec<char> = int_part.chars().rev().collect();
+
+        let mut formatted = String::new();
+        for (i, c) in chars.iter().enumerate() {
+            if i > 0 && i % 3 == 0 {
+                formatted.push(',');
+            }
+            formatted.push(*c);
+        }
+
+        let mut formatted: String = formatted.chars().rev().collect();
+        if let Some(frac) = frac_part {
+            formatted.push('.');
+            formatted.push_str(frac);
+        }
+
+        if neg {
+            formatted.insert(0, '-');
+        }
+
+        formatted
+    }
+
     fn get_display_value(&self) -> String {
         if self.left.is_none() {
-            self.get_current_value()
+            Self::format_with_commas(&self.get_current_value())
         } else {
             let Some(left_expression) = self.left.as_ref() else {
                 return "".to_owned();
             };
 
             let left_expression_display_value = left_expression.get_display_value();
-            let current_value = self.get_current_value();
+            let current_value = Self::format_with_commas(&self.get_current_value());
 
             format!(
                 "{}{}{}",
@@ -534,6 +567,19 @@ mod tests {
         };
 
         assert_eq!(expr.get_display_value(), "1+2");
+    }
+
+    #[test]
+    fn test_format_with_commas() {
+        assert_eq!(Expression::format_with_commas("123456"), "123,456");
+        assert_eq!(Expression::format_with_commas("1234"), "1,234");
+        assert_eq!(Expression::format_with_commas("12345678"), "12,345,678");
+        assert_eq!(Expression::format_with_commas("-12345678"), "-12,345,678");
+        assert_eq!(Expression::format_with_commas("123456.789"), "123,456.789");
+        assert_eq!(
+            Expression::format_with_commas("-123456.789"),
+            "-123,456.789"
+        );
     }
 
     #[test]
