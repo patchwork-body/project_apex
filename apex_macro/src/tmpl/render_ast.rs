@@ -113,9 +113,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
             }
 
             TmplAst::Expression(expr) => {
-                // Generate code to append expression result as text
-                let expr_str = expr.clone();
-                if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(&expr_str) {
+                if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
                     result.push(quote! {
                         {
                             use apex::web_sys::*;
