@@ -21,12 +21,19 @@ body {
 
 .display {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
   align-items: end;
   justify-content: flex-end;
   font-size: 3rem;
   font-weight: semibold;
   font-family: monospace;
   padding: 20px 25px;
+}
+
+.prev-expression {
+  font-size: 1.5rem;
+  color: #888;
 }
 
 .buttons {
