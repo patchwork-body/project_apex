@@ -115,7 +115,7 @@ impl Expression {
     }
 
     fn update_right(&mut self, symbol: String) {
-        if self.right == "0" {
+        if self.right == "0" && symbol != "." {
             self.right = symbol;
         } else {
             let right = self.right.clone();
@@ -345,6 +345,18 @@ pub fn calculator() -> Html {
         });
     });
 
+    let add_decimal_symbol = action!(expression => |_event| {
+        expression.update(|v| {
+            let mut v = v.clone();
+            if v.right.contains(".") {
+                return v;
+            }
+
+            v.update_right(".".to_owned());
+            v
+        });
+    });
+
     let display_expression = derive!(expression, { expression.get().get_display_value() });
 
     let execute_expression = action!(expression, prev_expression => |_event| {
@@ -388,7 +400,7 @@ pub fn calculator() -> Html {
                 <Button symbol="3" onclick={add_symbol.clone()} />
                 <Button primary={true} symbol="+" onclick={set_operator.clone()} />
                 <Button wide={true} symbol="0" onclick={add_symbol.clone()} />
-                <Button symbol="." onclick={add_symbol.clone()} />
+                <Button symbol="." onclick={add_decimal_symbol.clone()} />
                 <Button primary={true} symbol="=" onclick={execute_expression.clone()} />
             </div>
         </div>
@@ -645,12 +657,14 @@ mod tests {
             operator: None,
             ..Default::default()
         };
+
         let mul = Expression {
             left: Some(Box::new(left)),
             right: "4".to_owned(),
             operator: Some(Operator::Multiply),
             ..Default::default()
         };
+
         let add = Expression {
             left: Some(Box::new(Expression {
                 right: "2".to_owned(),
@@ -661,6 +675,7 @@ mod tests {
             operator: Some(Operator::Add),
             ..Default::default()
         };
+
         assert_eq!(add.execute(), 14.0); // 2 + 3 * 4 = 14
 
         // 2 + (3 * 4) = 14
@@ -669,12 +684,14 @@ mod tests {
             operator: None,
             ..Default::default()
         };
+
         let mul = Expression {
             left: Some(Box::new(left)),
             right: "4".to_owned(),
             operator: Some(Operator::Multiply),
             ..Default::default()
         };
+
         let add = Expression {
             left: Some(Box::new(Expression {
                 right: "2".to_owned(),
@@ -685,6 +702,7 @@ mod tests {
             operator: Some(Operator::Add),
             ..Default::default()
         };
+
         assert_eq!(add.execute(), 14.0); // 2 + (3 * 4) = 14
     }
 }
