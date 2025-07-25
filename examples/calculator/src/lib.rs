@@ -169,6 +169,29 @@ impl Expression {
             self.left = left.left.clone();
         }
     }
+
+    fn get_display_value(&self) -> String {
+        if self.left.is_none() {
+            self.get_current_value()
+        } else {
+            let Some(left_expression) = self.left.as_ref() else {
+                return "".to_owned();
+            };
+
+            let left_expression_display_value = left_expression.get_display_value();
+            let current_value = self.get_current_value();
+
+            format!(
+                "{}{}{}",
+                left_expression_display_value,
+                left_expression
+                    .operator
+                    .as_ref()
+                    .map_or("".to_owned(), |op| op.to_string()),
+                current_value
+            )
+        }
+    }
 }
 
 #[component]
@@ -245,32 +268,7 @@ pub fn calculator() -> Html {
         });
     });
 
-    let display_value = derive!(expression, {
-        let expression = expression.get();
-        let current_value = expression.get_current_value();
-
-        if expression.left.is_none() {
-            format!(
-                "{current_value}{}",
-                expression
-                    .operator
-                    .as_ref()
-                    .map_or("".to_owned(), |op| op.to_string())
-            )
-        } else {
-            let left_expression = expression.left.as_ref().unwrap();
-
-            format!(
-                "{}{}{}",
-                left_expression.get_current_value(),
-                left_expression
-                    .operator
-                    .as_ref()
-                    .map_or("".to_owned(), |op| op.to_string()),
-                current_value
-            )
-        }
-    });
+    let display_value = derive!(expression, { expression.get().get_display_value() });
 
     tmpl! {
         <div class="calculator">
