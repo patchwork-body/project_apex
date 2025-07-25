@@ -253,9 +253,12 @@ impl Expression {
 #[component]
 pub fn calculator() -> Html {
     let expression = signal!(Expression::default());
+    let prev_expression = signal!(None::<Expression>);
 
-    let set_operator = action!(expression => |event| {
+    let set_operator = action!(expression, prev_expression => |event| {
         let symbol = event.current_target().unwrap().dyn_into::<web_sys::HtmlButtonElement>().unwrap().inner_text();
+
+        prev_expression.set(None);
 
         expression.update(|v| {
             let mut v = v.clone();
@@ -264,18 +267,29 @@ pub fn calculator() -> Html {
         });
     });
 
-    let add_symbol = action!(expression => |event| {
+    let add_symbol = action!(expression, prev_expression => |event| {
         let symbol = event.current_target().unwrap().dyn_into::<web_sys::HtmlButtonElement>().unwrap().inner_text();
 
-        expression.update(|v| {
-            let mut v = v.clone();
-            v.update_right(symbol);
-            v
-        });
+        if prev_expression.get().is_some() {
+            prev_expression.set(None);
+
+            expression.update(|v| {
+                let mut v = v.clone();
+                v.reset();
+                v.update_right(symbol);
+                v
+            });
+        } else {
+            expression.update(|v| {
+                let mut v = v.clone();
+                v.update_right(symbol);
+                v
+            });
+        }
     });
 
-    let clear_symbol = expression.derive(|v| {
-        if v.right == "0" {
+    let clear_symbol = derive!(expression, prev_expression, {
+        if expression.get().right == "0" || prev_expression.get().is_some() {
             "AC".to_owned()
         } else {
             "<-".to_owned()
@@ -284,22 +298,29 @@ pub fn calculator() -> Html {
 
     let timeout_id = signal!(None::<i32>);
 
-    let remove_last_symbol = action!(expression, timeout_id => |_event| {
+    let remove_last_symbol = action!(expression, prev_expression, timeout_id => |_event| {
         if let Some(id) = timeout_id.get() {
             web_sys::window().unwrap().clear_timeout_with_handle(id);
         }
 
-        expression.update(|v| {
-            let mut v = v.clone();
-            v.remove_last_symbol();
-            v
-        });
+        if prev_expression.get().is_some() {
+            prev_expression.set(None);
+            expression.set(Expression::default());
+        } else {
+            expression.update(|v| {
+                let mut v = v.clone();
+                v.remove_last_symbol();
+                v
+            });
+        }
     });
 
-    let set_timeout_to_clear_value = action!(expression, timeout_id => |_event| {
+    let set_timeout_to_clear_value = action!(expression, prev_expression, timeout_id => |_event| {
         let expression = expression.clone();
+        let prev_expression = prev_expression.clone();
 
         let closure = Closure::wrap(Box::new(move || {
+            prev_expression.set(None);
             expression.set(Expression::default());
         }) as Box<dyn Fn()>);
 
@@ -324,7 +345,6 @@ pub fn calculator() -> Html {
         });
     });
 
-    let prev_expression = signal!(None::<Expression>);
     let display_expression = derive!(expression, { expression.get().get_display_value() });
 
     let execute_expression = action!(expression, prev_expression => |_event| {
