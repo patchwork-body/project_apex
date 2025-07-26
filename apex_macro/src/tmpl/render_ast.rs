@@ -1,5 +1,54 @@
+use std::collections::HashSet;
+
 use crate::tmpl::{Attribute, TmplAst};
 use quote::quote;
+use syn::{Ident, visit::Visit};
+
+// The IdentifierVisitor I referenced
+struct IdentifierVisitor {
+    identifiers: Vec<Ident>,
+    seen: HashSet<String>,
+}
+
+impl IdentifierVisitor {
+    fn new() -> Self {
+        Self {
+            identifiers: Vec::new(),
+            seen: HashSet::new(),
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for IdentifierVisitor {
+    fn visit_path(&mut self, path: &'ast syn::Path) {
+        // Extract identifiers from paths (like variable names)
+        if let Some(ident) = path.get_ident() {
+            let ident_str = ident.to_string();
+
+            // Skip common keywords and function names
+            if !matches!(
+                ident_str.as_str(),
+                "println" | "format" | "get" | "set" | "clone"
+            ) && self.seen.insert(ident_str)
+            {
+                self.identifiers.push(ident.clone());
+            }
+        }
+
+        // Continue visiting nested paths
+        syn::visit::visit_path(self, path);
+    }
+
+    fn visit_expr_call(&mut self, method_call: &'ast syn::ExprCall) {
+        // Visit the receiver (the object the method is called on)
+        self.visit_expr(&method_call.func);
+
+        // Don't visit method name itself, just the receiver and args
+        for arg in &method_call.args {
+            self.visit_expr(arg);
+        }
+    }
+}
 
 fn find_signals(expr: &str) -> Vec<String> {
     let mut signals = Vec::new();
@@ -114,16 +163,26 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
 
             TmplAst::Expression(expr) => {
                 if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
+                    let mut visitor = IdentifierVisitor::new();
+                    visitor.visit_expr(&expr_tokens);
+
+                    let vars = visitor.identifiers;
+
                     result.push(quote! {
                         {
                             use apex::web_sys::*;
 
                             let window = apex::web_sys::window().expect("no global `window` exists");
                             let document = window.document().expect("should have a document on window");
-                            let expr_value = #expr_tokens;
-                            let text_node = document.create_text_node(&expr_value.to_string());
-
+                            let text_node = document.create_text_node("");
                             let _ = element.append_child(&text_node);
+
+
+                            #(let #vars = #vars.clone();)*
+
+                            apex::effect!({
+                                text_node.set_data(&(#expr_tokens).to_string());
+                            });
                         }
                     });
                 }
@@ -190,7 +249,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                                         let attr_name = #k;
                                         #(#signal_clones)*
 
-                                        apex::effect!({
+                                        apex::effect!(auto {
                                             let attr_value = #expr_tokens;
                                             let _ = element_clone.set_attribute(attr_name, &attr_value.to_string());
                                         });
