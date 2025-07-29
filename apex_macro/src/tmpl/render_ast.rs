@@ -191,6 +191,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
             TmplAst::Element {
                 tag,
                 attributes,
+                is_component,
                 self_closing: _,
                 children,
             } => {

@@ -2,12 +2,14 @@ use std::str::Chars;
 
 use crate::tmpl::TmplAst;
 
+use super::is_pascal_case::is_pascal_case;
 use super::match_chars::match_chars;
 use super::parse_element_opening_tag::parse_element_opening_tag;
 use super::parse_slot_name::parse_slot_name;
 
+#[derive(PartialEq)]
 enum ProcessCharsUntilState {
-    Void,
+    Unknown,
     Text,
     Element,
     Expression,
@@ -19,7 +21,7 @@ pub(crate) fn process_chars_until(
 ) -> Vec<TmplAst> {
     let mut ast = Vec::new();
     let mut text = String::new();
-    let mut state = ProcessCharsUntilState::Void;
+    let mut state = ProcessCharsUntilState::Unknown;
 
     while chars.peek().is_some() {
         if chars.peek().is_none() {
@@ -37,38 +39,45 @@ pub(crate) fn process_chars_until(
         }
 
         match state {
-            ProcessCharsUntilState::Void => {
-                // Skip whitespace between elements
-                while chars.peek() == Some(&' ')
-                    || chars.peek() == Some(&'\n')
-                    || chars.peek() == Some(&'\r')
-                    || chars.peek() == Some(&'\t')
-                {
-                    chars.next();
+            ProcessCharsUntilState::Unknown | ProcessCharsUntilState::Text => {
+                if state == ProcessCharsUntilState::Unknown {
+                    // Skip whitespace between elements
+                    while chars.peek() == Some(&' ')
+                        || chars.peek() == Some(&'\n')
+                        || chars.peek() == Some(&'\r')
+                        || chars.peek() == Some(&'\t')
+                    {
+                        chars.next();
+                    }
                 }
 
                 if chars.peek() == Some(&'<') {
                     state = ProcessCharsUntilState::Element;
+
+                    if !text.is_empty() {
+                        ast.push(TmplAst::Text(text));
+                        text = String::new();
+                    }
                 } else if chars.peek() == Some(&'{') {
                     state = ProcessCharsUntilState::Expression;
+
+                    if !text.is_empty() {
+                        ast.push(TmplAst::Text(text));
+                        text = String::new();
+                    }
+
                     chars.next(); // consume '{'
                 } else {
                     state = ProcessCharsUntilState::Text;
-                }
-            }
-            ProcessCharsUntilState::Text => {
-                let Some(ch) = chars.next() else {
-                    break;
-                };
 
-                text.push(ch);
+                    let Some(ch) = chars.next() else {
+                        break;
+                    };
+
+                    text.push(ch);
+                }
             }
             ProcessCharsUntilState::Element => {
-                if !text.is_empty() {
-                    ast.push(TmplAst::Text(text));
-                    text = String::new();
-                }
-
                 let mut lookahead = chars.clone();
                 lookahead.next(); // consume '<'
 
@@ -84,17 +93,24 @@ pub(crate) fn process_chars_until(
                         children,
                     });
                 } else {
-                    // Handle element tag
                     let (element_name, element_attrs, is_self_closing) =
                         parse_element_opening_tag(chars);
+
+                    let is_component = element_name
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_uppercase());
 
                     if !is_self_closing {
                         let closing_tag = format!("</{element_name}>");
                         let children = process_chars_until(chars, Some(&closing_tag));
 
+                        let is_component = is_pascal_case(&element_name);
+
                         ast.push(TmplAst::Element {
                             tag: element_name,
                             attributes: element_attrs,
+                            is_component,
                             self_closing: is_self_closing,
                             children,
                         });
@@ -102,13 +118,14 @@ pub(crate) fn process_chars_until(
                         ast.push(TmplAst::Element {
                             tag: element_name,
                             attributes: element_attrs,
+                            is_component,
                             self_closing: is_self_closing,
                             children: Vec::new(),
                         });
                     }
                 }
 
-                state = ProcessCharsUntilState::Void;
+                state = ProcessCharsUntilState::Unknown;
             }
             ProcessCharsUntilState::Expression => {
                 if chars.peek() == Some(&'}') {
@@ -119,7 +136,7 @@ pub(crate) fn process_chars_until(
                         text = String::new();
                     }
 
-                    state = ProcessCharsUntilState::Void;
+                    state = ProcessCharsUntilState::Unknown;
                 } else {
                     let Some(ch) = chars.next() else {
                         panic!("Invalid expression syntax")
@@ -161,6 +178,7 @@ mod tests {
             ast,
             vec![TmplAst::Element {
                 tag: "div".to_owned(),
+                is_component: false,
                 attributes: Attributes::new(),
                 self_closing: false,
                 children: vec![],
@@ -179,6 +197,7 @@ mod tests {
                 tag: "div".to_owned(),
                 attributes: Attributes::new(),
                 self_closing: false,
+                is_component: false,
                 children: vec![TmplAst::Text("Hello, world!".to_owned())],
             }]
         );
@@ -195,10 +214,12 @@ mod tests {
                 tag: "div".to_owned(),
                 attributes: Attributes::new(),
                 self_closing: false,
+                is_component: false,
                 children: vec![TmplAst::Element {
                     tag: "p".to_owned(),
                     attributes: Attributes::new(),
                     self_closing: false,
+                    is_component: false,
                     children: vec![TmplAst::Text("Hello, world!".to_owned())],
                 }],
             }]
@@ -232,6 +253,7 @@ mod tests {
                     tag: "p".to_owned(),
                     attributes: Attributes::new(),
                     self_closing: false,
+                    is_component: false,
                     children: vec![TmplAst::Text("Hello, world!".to_owned())],
                 }],
             }],
@@ -271,6 +293,7 @@ mod tests {
                 tag: "div".to_owned(),
                 attributes: Attributes::new(),
                 self_closing: false,
+                is_component: false,
                 children: vec![TmplAst::Expression("1 + 1".to_owned())],
             }]
         );
@@ -287,6 +310,7 @@ mod tests {
                 tag: "div".to_owned(),
                 attributes: Attributes::new(),
                 self_closing: false,
+                is_component: false,
                 children: vec![
                     TmplAst::Expression("1 + 1".to_owned()),
                     TmplAst::Text("Hello, world!".to_owned())
@@ -317,7 +341,162 @@ mod tests {
                     ),
                 ]),
                 self_closing: false,
+                is_component: false,
                 children: vec![TmplAst::Expression("1 + 1".to_owned())],
+            }]
+        );
+    }
+
+    #[test]
+    fn text_inside_element_with_nested_elements() {
+        let mut chars = "<div>Hello, <span>world</span>!</div>".chars().peekable();
+        let ast = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                self_closing: false,
+                is_component: false,
+                children: vec![
+                    TmplAst::Text("Hello, ".to_owned()),
+                    TmplAst::Element {
+                        tag: "span".to_owned(),
+                        attributes: Attributes::new(),
+                        self_closing: false,
+                        is_component: false,
+                        children: vec![TmplAst::Text("world".to_owned())],
+                    },
+                    TmplAst::Text("!".to_owned()),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn text_inside_element_with_nested_expression() {
+        let mut chars = "<div>Hello, {1 + 1}!</div>".chars().peekable();
+        let ast = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                self_closing: false,
+                is_component: false,
+                children: vec![
+                    TmplAst::Text("Hello, ".to_owned()),
+                    TmplAst::Expression("1 + 1".to_owned()),
+                    TmplAst::Text("!".to_owned()),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn single_component() {
+        let mut chars = "<MyComponent></MyComponent>".chars().peekable();
+        let ast = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "MyComponent".to_owned(),
+                attributes: Attributes::new(),
+                is_component: true,
+                self_closing: false,
+                children: vec![],
+            }]
+        );
+    }
+
+    #[test]
+    fn component_with_text() {
+        let mut chars = "<MyComponent>Hello, world!</MyComponent>"
+            .chars()
+            .peekable();
+        let ast = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "MyComponent".to_owned(),
+                attributes: Attributes::new(),
+                is_component: true,
+                self_closing: false,
+                children: vec![TmplAst::Text("Hello, world!".to_owned())],
+            }]
+        );
+    }
+
+    #[test]
+    fn self_closing_component() {
+        let mut chars = "<MyComponent />".chars().peekable();
+        let ast = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "MyComponent".to_owned(),
+                attributes: Attributes::new(),
+                is_component: true,
+                self_closing: true,
+                children: vec![],
+            }]
+        );
+    }
+
+    #[test]
+    fn component_with_attrs() {
+        let mut chars = "<MyComponent id=\"container-id\" onclick={handle_click}></MyComponent>"
+            .chars()
+            .peekable();
+        let ast = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "MyComponent".to_owned(),
+                attributes: Attributes::from([
+                    (
+                        "id".to_owned(),
+                        Attribute::Literal("container-id".to_owned())
+                    ),
+                    (
+                        "onclick".to_owned(),
+                        Attribute::EventListener("handle_click".to_owned())
+                    ),
+                ]),
+                is_component: true,
+                self_closing: false,
+                children: vec![],
+            }]
+        );
+    }
+
+    #[test]
+    fn component_with_nested_elements() {
+        let mut chars = "<MyComponent><p>Hello, world!</p></MyComponent>"
+            .chars()
+            .peekable();
+        let ast = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "MyComponent".to_owned(),
+                attributes: Attributes::new(),
+                is_component: true,
+                self_closing: false,
+                children: vec![TmplAst::Element {
+                    tag: "p".to_owned(),
+                    attributes: Attributes::new(),
+                    is_component: false,
+                    self_closing: false,
+                    children: vec![TmplAst::Text("Hello, world!".to_owned())],
+                }],
             }]
         );
     }

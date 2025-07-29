@@ -45,6 +45,7 @@ pub(crate) enum TmplAst {
     Element {
         tag: String,
         attributes: Attributes,
+        is_component: bool,
         self_closing: bool,
         children: Vec<TmplAst>,
     },

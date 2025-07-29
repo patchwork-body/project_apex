@@ -1,5 +1,6 @@
 use crate::tmpl::TmplAst;
 
+mod is_pascal_case;
 mod match_chars;
 mod parse_element_opening_tag;
 mod parse_slot_name;
