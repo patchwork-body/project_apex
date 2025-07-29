@@ -198,6 +198,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
 
                 let attr_setters = attributes.iter().filter_map(|(k, v)| {
                     match v {
+                        Attribute::Empty => None,
                         Attribute::Literal(val) => Some(quote! {
                             new_element.set_attribute(#k, #val).expect("Failed to set attribute");
                         }),
@@ -428,6 +429,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                     let method_name = syn::Ident::new(key, proc_macro2::Span::call_site());
 
                     let value_expr = match value {
+                        Attribute::Empty => continue,
                         Attribute::Literal(literal) => {
                             quote! {
                                 #literal.into()
@@ -504,6 +506,12 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                 children: _,
             } => {
                 // Slots are not rendered directly, they are passed to components
+            }
+            TmplAst::Conditional {
+                if_blocks,
+                else_block,
+            } => {
+                // TODO: Implement conditional rendering
             }
         }
     }

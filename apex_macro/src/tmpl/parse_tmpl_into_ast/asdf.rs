@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::Chars};
 
-use crate::tmpl::{Attribute, TmplAst};
+use crate::tmpl::{Attribute, IfBlock, TmplAst};
 
 /// Detects if an expression contains signal usage (variables prefixed with $ sign)
 fn is_signal_expression(expr: &str) -> bool {
@@ -44,44 +44,85 @@ fn split_expression_into_parts(expr: &str) -> Vec<TmplAst> {
     vec![TmplAst::Expression(expr.to_owned())]
 }
 
-pub(crate) fn parse_tmpl_into_ast(input: &str) -> Vec<TmplAst> {
-    // Normalize input: remove line breaks and reduce all whitespace to a single space
-    let input = input
-        .replace(['\n', '\r'], " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .to_owned();
-
-    let mut ast = Vec::new();
-    let mut chars = input.chars().peekable();
-
-    while chars.peek().is_some() {
-        // Skip whitespace between elements
-        while chars.peek() == Some(&' ')
-            || chars.peek() == Some(&'\n')
-            || chars.peek() == Some(&'\r')
-            || chars.peek() == Some(&'\t')
-        {
-            chars.next();
-        }
-
-        if chars.peek().is_none() {
+fn parse_directive_name(chars: &mut std::iter::Peekable<Chars<'_>>) -> String {
+    let mut name = String::new();
+    while let Some(&ch) = chars.peek() {
+        if ch == ' ' || ch == '>' || ch == '/' {
             break;
         }
 
-        if chars.peek() == Some(&'<') {
-            if let Some(element) = parse_element(&mut chars) {
-                ast.push(element);
-            }
-        } else {
-            let content = parse_text_or_expression(&mut chars);
-            ast.extend(content);
-        }
+        name.push(chars.next().unwrap());
     }
 
-    ast
+    name
+}
+
+fn parse_directive_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> String {
+    let mut expr = String::new();
+
+    while let Some(&ch) = chars.peek() {
+        if ch == '}' {
+            break;
+        }
+
+        expr.push(chars.next().unwrap());
+    }
+
+    expr
+}
+
+fn parse_directive_block(
+    chars: &mut std::iter::Peekable<Chars<'_>>,
+    directive_name: &str,
+) -> Vec<TmplAst> {
+    let end_of_block = match directive_name {
+        "if" => vec!["elseif", "else", "endif"],
+        "elseif" => vec!["else", "endif"],
+        "else" => vec!["endif"],
+        _ => panic!("Unknown directive: {directive_name}"),
+    };
+
+    let mut block_chars = String::new();
+
+    while let Some(&ch) = chars.peek() {
+        // Go until we find the next directive
+        if ch == '{' {}
+    }
+
+    let input = block_chars.collect::<String>();
+
+    parse_tmpl_into_ast(&input)
+}
+
+fn parse_directive(chars: &mut std::iter::Peekable<Chars<'_>>) -> TmplAst {
+    let directive_name: String = parse_directive_name(chars);
+    let directive_expression = parse_directive_expression(chars);
+    let directive_block = parse_directive_block(chars, &directive_name);
+
+    match directive_name.as_str() {
+        "if" => TmplAst::Conditional {
+            if_blocks: vec![IfBlock {
+                condition: directive_expression,
+                children: directive_block,
+            }],
+            else_block: None,
+        },
+        "elseif" => TmplAst::Conditional {
+            if_blocks: vec![IfBlock {
+                condition: directive_expression,
+                children: directive_block,
+            }],
+            else_block: None,
+        },
+        "else" => TmplAst::Conditional {
+            if_blocks: vec![IfBlock {
+                condition: directive_expression,
+                children: directive_block,
+            }],
+            else_block: None,
+        },
+        _ => panic!("Unknown directive: {directive_name}"),
+    }
 }
 
 fn parse_element(chars: &mut std::iter::Peekable<Chars<'_>>) -> Option<TmplAst> {
@@ -306,6 +347,15 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Vec<T
                 content.clear();
             }
 
+            // Check if this is a conditional directive
+            let mut lookahead = chars.clone();
+            lookahead.next(); // consume '{'
+
+            if lookahead.peek() == Some(&'#') {
+                // This is a conditional directive, stop parsing
+                break;
+            }
+
             // Parse expression
             chars.next(); // consume '{'
             let mut expr = String::new();
@@ -345,7 +395,6 @@ fn parse_text_or_expression(chars: &mut std::iter::Peekable<Chars<'_>>) -> Vec<T
 
     result
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -697,6 +746,69 @@ mod tests {
                         children: vec![TmplAst::Text("Dec".to_owned())],
                     },
                 ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_conditional_single_if() {
+        let input = "{#if count.get() > 0 } Count is positive {#endif}";
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Conditional {
+                if_blocks: vec![IfBlock {
+                    condition: "count.get() > 0".to_owned(),
+                    children: vec![TmplAst::Text("Count is positive".to_owned())],
+                }],
+                else_block: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_conditional_with_else() {
+        let input = "{#if count.get() > 0} Count is positive {#else} Count is negative {#endif}";
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Conditional {
+                if_blocks: vec![IfBlock {
+                    condition: "count.get() > 0".to_owned(),
+                    children: vec![TmplAst::Text("Count is positive".to_owned())],
+                }],
+                else_block: Some(vec![TmplAst::Text("Count is negative".to_owned())]),
+            }
+        );
+    }
+
+    #[test]
+    fn test_conditional_with_multiple_if_blocks() {
+        let input = "{#if count.get() > 0} Count is positive {#elseif count.get() < 0} Count is negative {#else} Count is zero {#endif}";
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(ast.len(), 1);
+
+        assert_eq!(
+            ast[0],
+            TmplAst::Conditional {
+                if_blocks: vec![
+                    IfBlock {
+                        condition: "count.get() > 0".to_owned(),
+                        children: vec![TmplAst::Text("Count is positive".to_owned())],
+                    },
+                    IfBlock {
+                        condition: "count.get() < 0".to_owned(),
+                        children: vec![TmplAst::Text("Count is negative".to_owned())],
+                    }
+                ],
+                else_block: Some(vec![TmplAst::Text("Count is zero".to_owned())]),
             }
         );
     }

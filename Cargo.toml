@@ -1,5 +1,5 @@
 [workspace]
-members = ["apex", "apex_macro", "examples/*"]
+members = ["apex", "apex_macro"]
 default-members = ["apex"]
 resolver = "2"
 
