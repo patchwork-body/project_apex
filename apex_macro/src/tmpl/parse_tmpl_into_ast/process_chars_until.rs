@@ -8,6 +8,13 @@ use super::parse_element_opening_tag::parse_element_opening_tag;
 use super::parse_slot_name::parse_slot_name;
 
 #[derive(PartialEq)]
+enum ExpressionType {
+    Ordinary,
+    Directive,
+    Slot,
+}
+
+#[derive(PartialEq)]
 enum ProcessCharsUntilState {
     Unknown,
     Text,
@@ -22,6 +29,7 @@ pub(crate) fn process_chars_until(
     let mut ast = Vec::new();
     let mut text = String::new();
     let mut state = ProcessCharsUntilState::Unknown;
+    let mut expression_type = ExpressionType::Ordinary;
 
     while chars.peek().is_some() {
         if chars.peek().is_none() {
@@ -128,11 +136,26 @@ pub(crate) fn process_chars_until(
                 state = ProcessCharsUntilState::Unknown;
             }
             ProcessCharsUntilState::Expression => {
+                if chars.peek() == Some(&'@') {
+                    chars.next(); // consume '@'
+                    expression_type = ExpressionType::Slot;
+                }
+
                 if chars.peek() == Some(&'}') {
                     chars.next(); // consume '}'
 
                     if !text.is_empty() {
-                        ast.push(TmplAst::Expression(text));
+                        match expression_type {
+                            ExpressionType::Ordinary => {
+                                ast.push(TmplAst::Expression(text));
+                            }
+                            ExpressionType::Slot => {
+                                ast.push(TmplAst::SlotInterpolation { slot_name: text });
+                            }
+                            ExpressionType::Directive => {}
+                        }
+
+                        expression_type = ExpressionType::Ordinary;
                         text = String::new();
                     }
 
@@ -496,6 +519,25 @@ mod tests {
                     is_component: false,
                     self_closing: false,
                     children: vec![TmplAst::Text("Hello, world!".to_owned())],
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn slot_interpolation() {
+        let mut chars = "<div>{@slot_name}</div>".chars().peekable();
+        let ast = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::SlotInterpolation {
+                    slot_name: "slot_name".to_owned(),
                 }],
             }]
         );
