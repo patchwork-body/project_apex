@@ -4,13 +4,10 @@ use crate::tmpl::{Attribute, Attributes};
 
 #[derive(PartialEq)]
 enum ElementOpeningTagState {
+    Void,
     ElementName,
     AttributeName,
     AttributeValue,
-}
-
-fn is_whitespace_or_tag_end(ch: Option<&char>) -> bool {
-    ch == Some(&' ') || ch == Some(&'/') || ch == Some(&'>')
 }
 
 fn insert_attribute(
@@ -34,6 +31,7 @@ pub(crate) fn parse_element_opening_tag(
     let mut attribute_name = String::new();
     let mut attribute_value = Attribute::Empty;
     let mut is_self_closing = false;
+    let mut expression_nesting_level = 0;
 
     if chars.peek() == Some(&'<') {
         chars.next(); // consume '<'
@@ -41,11 +39,9 @@ pub(crate) fn parse_element_opening_tag(
         panic!("Unexpected character: {:?}, expected '<'", chars.peek());
     }
 
-    while let Some(ch) = chars.next() {
-        println!("ch: {ch}");
-
+    for ch in chars.by_ref() {
         if is_self_closing && ch != '>' {
-            panic!("Unexpected character: {ch}, expected '>'");
+            continue;
         }
 
         if ch == '>' {
@@ -65,6 +61,7 @@ pub(crate) fn parse_element_opening_tag(
             );
         } else if ch == ' ' {
             match state {
+                ElementOpeningTagState::Void => state = ElementOpeningTagState::AttributeName,
                 ElementOpeningTagState::ElementName => {
                     state = ElementOpeningTagState::AttributeName;
                 }
@@ -77,18 +74,15 @@ pub(crate) fn parse_element_opening_tag(
                     );
                 }
                 ElementOpeningTagState::AttributeValue => {
-                    state = ElementOpeningTagState::AttributeName;
-                    insert_attribute(
-                        &mut element_attrs,
-                        &mut attribute_name,
-                        &mut attribute_value,
-                    );
+                    attribute_value.push(ch);
                 }
             }
         } else if ch == '=' {
             match state {
+                ElementOpeningTagState::Void => {
+                    continue;
+                }
                 ElementOpeningTagState::AttributeName => {
-                    println!("switch to AttributeValue");
                     state = ElementOpeningTagState::AttributeValue;
                 }
                 ElementOpeningTagState::AttributeValue => {
@@ -99,16 +93,15 @@ pub(crate) fn parse_element_opening_tag(
                 }
             }
         } else if ch == '"' {
-            match state {
-                ElementOpeningTagState::AttributeValue => match &attribute_value {
+            if state == ElementOpeningTagState::AttributeValue {
+                match &attribute_value {
                     Attribute::Literal(_) => {
-                        let peek = chars.peek();
-
-                        if is_whitespace_or_tag_end(peek) {
-                            continue;
-                        }
-
-                        panic!("Unexpected character: {peek:?}, expected one of: ' ', '/', '>'");
+                        state = ElementOpeningTagState::Void;
+                        insert_attribute(
+                            &mut element_attrs,
+                            &mut attribute_name,
+                            &mut attribute_value,
+                        );
                     }
                     Attribute::Empty => {
                         attribute_value = Attribute::Literal(String::new());
@@ -116,34 +109,46 @@ pub(crate) fn parse_element_opening_tag(
                     _ => {
                         attribute_value.push(ch);
                     }
-                },
-                _ => {
-                    panic!("Unexpected character: {ch}");
                 }
             }
         } else if ch == '{' {
-            match state {
-                ElementOpeningTagState::AttributeValue => {
-                    if attribute_name.starts_with("on") {
-                        attribute_value = Attribute::EventListener(String::new());
-                    } else {
-                        attribute_value = Attribute::Expression(String::new());
+            if state == ElementOpeningTagState::AttributeValue {
+                match &attribute_value {
+                    Attribute::Expression(_) | Attribute::EventListener(_) => {
+                        expression_nesting_level += 1;
+                        attribute_value.push(ch);
                     }
-                }
-                _ => {
-                    panic!("Unexpected character: {ch}");
+                    Attribute::Empty => {
+                        if attribute_name.starts_with("on") {
+                            attribute_value = Attribute::EventListener(String::new());
+                        } else {
+                            attribute_value = Attribute::Expression(String::new());
+                        }
+                    }
+                    Attribute::Literal(_) => {
+                        attribute_value.push(ch);
+                    }
                 }
             }
         } else if ch == '}' {
-            match state {
-                ElementOpeningTagState::AttributeValue => match &attribute_value {
-                    Attribute::Expression(_) | Attribute::EventListener(_) => {}
+            if state == ElementOpeningTagState::AttributeValue {
+                match &attribute_value {
+                    Attribute::Expression(_) | Attribute::EventListener(_) => {
+                        if expression_nesting_level == 0 {
+                            state = ElementOpeningTagState::Void;
+                            insert_attribute(
+                                &mut element_attrs,
+                                &mut attribute_name,
+                                &mut attribute_value,
+                            );
+                        } else {
+                            attribute_value.push(ch);
+                            expression_nesting_level -= 1;
+                        }
+                    }
                     _ => {
                         attribute_value.push(ch);
                     }
-                },
-                _ => {
-                    panic!("Unexpected character: {ch}");
                 }
             }
         } else if state == ElementOpeningTagState::ElementName {
@@ -201,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tag_with_one_literal_attribute_and_one_expression_attribute() {
+    fn tag_with_one_literal_attribute_and_one_expression_attribute() {
         let mut chars = "<div class=\"container\" onclick={handle_click}>"
             .chars()
             .peekable();
@@ -221,6 +226,22 @@ mod tests {
                     Attribute::EventListener("handle_click".to_owned())
                 )
             ])
+        );
+        assert!(!is_self_closing);
+    }
+
+    #[test]
+    fn tag_with_expression_attribute() {
+        let mut chars = "<div data-test={1 + 1}></div>".chars().peekable();
+        let (element_name, element_attrs, is_self_closing) = parse_element_opening_tag(&mut chars);
+
+        assert_eq!(element_name, "div");
+        assert_eq!(
+            element_attrs,
+            Attributes::from([(
+                "data-test".to_owned(),
+                Attribute::Expression("1 + 1".to_owned())
+            )])
         );
         assert!(!is_self_closing);
     }

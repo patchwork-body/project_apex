@@ -50,32 +50,6 @@ impl<'ast> Visit<'ast> for IdentifierVisitor {
     }
 }
 
-fn find_signals(expr: &str) -> Vec<String> {
-    let mut signals = Vec::new();
-    let mut chars = expr.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '$' {
-            let mut signal = String::new();
-
-            for ch in chars.by_ref() {
-                if ch.is_alphanumeric() || ch == '_' {
-                    signal.push(ch);
-                } else {
-                    break;
-                }
-            }
-
-            signals.push(signal);
-        }
-    }
-
-    signals
-        .into_iter()
-        .filter(|signal| !signal.is_empty())
-        .collect()
-}
-
 /// Determines if a text node contains only whitespace
 fn is_whitespace_only(text: &str) -> bool {
     text.chars().all(|c| c.is_whitespace())
@@ -83,7 +57,7 @@ fn is_whitespace_only(text: &str) -> bool {
 
 /// Determines if an AST node is an element (not text/expression/signal)
 fn is_element_node(node: &TmplAst) -> bool {
-    matches!(node, TmplAst::Element { .. } | TmplAst::Component { .. })
+    matches!(node, TmplAst::Element { .. })
 }
 
 /// Context for text node processing
@@ -195,302 +169,174 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                 self_closing: _,
                 children,
             } => {
-                let tag_name = tag.clone();
+                if *is_component {
+                    let component_name = syn::Ident::new(tag, proc_macro2::Span::call_site());
 
-                let attr_setters = attributes.iter().filter_map(|(k, v)| {
-                    match v {
-                        Attribute::Empty => None,
-                        Attribute::Literal(val) => Some(quote! {
-                            new_element.set_attribute(#k, #val).expect("Failed to set attribute");
-                        }),
-                        Attribute::Expression(expr) => {
-                            if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
-                                Some(quote! {
-                                    new_element.set_attribute(#k, &{ let v = #expr_tokens; v.to_string() }).expect("Failed to set dynamic attribute");
+                    // Collect slot children into a map: slot_name -> Html
+                    let mut slot_map = std::collections::HashMap::new();
+                    let mut non_slot_children = Vec::new();
+
+                    for child in children {
+                        if let TmplAst::Slot { name, children } = child {
+                            // Render the slot children into Html
+                            let slot_child_fns = render_ast(children);
+
+                            let slot_html = quote! {
+                                apex::Html::new(|element| {
+                                    #(#slot_child_fns)*
                                 })
-                            } else {
-                                None
-                            }
-                        },
-                        Attribute::Signal(expr) => {
-                            let signals = find_signals(expr);
-
-                            let signal_clones = signals
-                                .iter()
-                                .map(|signal| {
-                                    let signal_ident = syn::Ident::new(signal, proc_macro2::Span::call_site());
-                                    let clone_ident = syn::Ident::new(
-                                        &format!("{signal}_clone"),
-                                        proc_macro2::Span::call_site(),
-                                    );
-
-                                    quote! {
-                                        let #clone_ident = #signal_ident.clone();
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-
-                            let mut processed_expr = expr.clone();
-
-                            for signal in &signals {
-                                let signal_pattern = format!("${signal}");
-                                let replacement = format!("{signal}_clone.get()");
-                                processed_expr = processed_expr.replace(&signal_pattern, &replacement);
-                            }
-
-                            if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(&processed_expr) {
-                                Some(quote! {
-                                    {
-                                        #(#signal_clones)*
-                                        let attr_value = #expr_tokens;
-                                        new_element.set_attribute(#k, &attr_value.to_string()).expect("Failed to set signal attribute");
-                                    }
-
-                                    {
-                                        let element_clone = new_element.clone();
-                                        let attr_name = #k;
-                                        #(#signal_clones)*
-
-                                        apex::effect!(auto {
-                                            let attr_value = #expr_tokens;
-                                            let _ = element_clone.set_attribute(attr_name, &attr_value.to_string());
-                                        });
-                                    }
-                                })
-                            } else {
-                                None
-                            }
-                        },
-                        Attribute::EventListener(_) => None,
-                    }
-                }).collect::<Vec<_>>();
-
-                let event_listeners = attributes.iter().filter_map(|(k, v)| {
-                    match v {
-                        Attribute::EventListener(handler) => {
-                            // Extract event name from attribute (e.g., "onclick" -> "click")
-                            let event_name = if k.starts_with("on") && k.len() > 2 {
-                                &k[2..] // Remove "on" prefix
-                            } else {
-                                return None; // Skip invalid event names
                             };
 
-                            if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
-                                Some(quote! {
-                                    {
-                                        use apex::wasm_bindgen::prelude::*;
-                                        use apex::web_sys::*;
+                            slot_map.insert(name.clone(), slot_html);
+                        } else {
+                            non_slot_children.push(child.clone());
+                        }
+                    }
 
-                                        let handler_fn = (#handler_tokens).clone();
-                                        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
-                                            handler_fn(event);
-                                        }) as Box<dyn FnMut(web_sys::Event)>);
+                    // Generate builder method calls for each attribute
+                    let mut builder_chain = quote! { #component_name::builder() };
 
-                                        let _ = new_element.add_event_listener_with_callback(
-                                            #event_name,
-                                            closure.as_ref().unchecked_ref()
-                                        );
+                    for (key, value) in attributes {
+                        let method_name = syn::Ident::new(key, proc_macro2::Span::call_site());
 
-                                        closure.forget(); // Prevent cleanup
-                                    }
-                                })
-                            } else {
-                                None
+                        let value_expr = match value {
+                            Attribute::Empty => continue,
+                            Attribute::Literal(literal) => {
+                                quote! {
+                                    #literal.into()
+                                }
                             }
-                        }
-                        _ => None,
+                            Attribute::Expression(expr) => {
+                                if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
+                                    quote! { #expr_tokens }
+                                } else {
+                                    continue;
+                                }
+                            }
+                            Attribute::EventListener(handler) => {
+                                if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
+                                    quote! { #handler_tokens }
+                                } else {
+                                    continue;
+                                }
+                            }
+                        };
+
+                        builder_chain = quote! { #builder_chain.#method_name(#value_expr) };
                     }
-                }).collect::<Vec<_>>();
 
-                let child_fns = render_ast(children);
-
-                result.push(quote! {
-                    {
-                        use apex::web_sys::*;
-
-                        let window = apex::web_sys::window().expect("no global `window` exists");
-                        let document = window.document().expect("should have a document on window");
-                        let new_element = document.create_element(#tag_name).expect("Failed to create element");
-
-                        #(#attr_setters)*
-
-                        let _ = element.append_child(&new_element);
-
-                        #(#event_listeners)*
-
-                        {
-                            let element = &new_element;
-                            #(#child_fns)*
-                        }
+                    // Add builder calls for slots
+                    for (slot_name, slot_html) in &slot_map {
+                        let method_name =
+                            syn::Ident::new(slot_name, proc_macro2::Span::call_site());
+                        builder_chain = quote! { #builder_chain.#method_name(#slot_html) };
                     }
-                });
-            }
 
-            TmplAst::Signal(expr) => {
-                // Remove $ prefixes from signal names and trim whitespace
-                // let processed_expr = expr.replace("$", "").trim().to_string();
+                    // Generate children Html if non-slot children exist (for default slot)
+                    if !non_slot_children.is_empty() {
+                        let child_fns = render_ast(&non_slot_children);
 
-                // Collect all signals names from the expression, all signals should be marked with $ prefix, expression can contain multiple signals and other literals
-                let signals = find_signals(expr);
-
-                // Generate cloning statements for each signal
-                let signal_clones = signals
-                    .iter()
-                    .map(|signal| {
-                        let signal_ident = syn::Ident::new(signal, proc_macro2::Span::call_site());
-                        let clone_ident = syn::Ident::new(
-                            &format!("{signal}_clone"),
-                            proc_macro2::Span::call_site(),
-                        );
-                        quote! {
-                            let #clone_ident = #signal_ident.clone();
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                // Replace $signal_name with signal_name_clone.get()
-                let mut processed_expr = expr.clone();
-
-                for signal in &signals {
-                    let signal_pattern = format!("${signal}");
-                    let replacement = format!("{signal}_clone.get()");
-
-                    processed_expr = processed_expr.replace(&signal_pattern, &replacement);
-                }
-
-                if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(&processed_expr) {
-                    result.push(quote! {
-                        use apex::web_sys::*;
-                        use apex::*;
-
-                        let window = apex::web_sys::window().expect("no global `window` exists");
-                        let document = window.document().expect("should have a document on window");
-
-                        #(#signal_clones)*
-
-                        // Create initial text node with current value
-                        let expression_value = #expr_tokens;
-                        let text_node = document.create_text_node(&expression_value.to_string());
-                        let _ = element.append_child(&text_node);
-
-                        // Clone text node for the effect
-                        let text_node_clone = text_node.clone();
-
-                        // Set up reactive effect for updates
-                        apex::effect!({
-                            let expression_value = #expr_tokens;
-                            text_node_clone.set_data(&expression_value.to_string());
-                        });
-                    });
-                } else {
-                    // Fallback for invalid expressions
-                    result.push(quote! {
-                        use apex::web_sys::*;
-
-                        let window = apex::web_sys::window().expect("no global `window` exists");
-                        let document = window.document().expect("should have a document on window");
-                        let text_node = document.create_text_node("");
-                        let _ = element.append_child(&text_node);
-                    });
-                }
-            }
-
-            TmplAst::Component {
-                name,
-                attributes,
-                children,
-            } => {
-                let component_name = syn::Ident::new(name, proc_macro2::Span::call_site());
-
-                // Collect slot children into a map: slot_name -> Html
-                let mut slot_map = std::collections::HashMap::new();
-                let mut non_slot_children = Vec::new();
-
-                for child in children {
-                    if let TmplAst::Slot { name, children } = child {
-                        // Render the slot children into Html
-                        let slot_child_fns = render_ast(children);
-
-                        let slot_html = quote! {
+                        let children_html = quote! {
                             apex::Html::new(|element| {
-                                #(#slot_child_fns)*
+                                #(#child_fns)*
                             })
                         };
 
-                        slot_map.insert(name.clone(), slot_html);
-                    } else {
-                        non_slot_children.push(child.clone());
+                        builder_chain = quote! { #builder_chain.children(#children_html) };
                     }
-                }
 
-                // Generate builder method calls for each attribute
-                let mut builder_chain = quote! { #component_name::builder() };
+                    // Complete the builder chain with .build()
+                    let component_instance = quote! { #builder_chain.build() };
 
-                for (key, value) in attributes {
-                    let method_name = syn::Ident::new(key, proc_macro2::Span::call_site());
+                    result.push(quote! {
+                        {
+                            let component_instance = #component_instance;
+                            let component_html = component_instance.render();
+                            component_html.mount(Some(&element)).expect("Failed to mount component");
+                        }
+                    });
+                } else {
+                    let tag_name = tag.clone();
 
-                    let value_expr = match value {
-                        Attribute::Empty => continue,
-                        Attribute::Literal(literal) => {
-                            quote! {
-                                #literal.into()
+                    let attr_setters = attributes.iter().filter_map(|(k, v)| {
+                        match v {
+                            Attribute::Empty => None,
+                            Attribute::Literal(val) => Some(quote! {
+                                new_element.set_attribute(#k, #val).expect("Failed to set attribute");
+                            }),
+                            Attribute::Expression(expr) => {
+                                if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
+                                    Some(quote! {
+                                        new_element.set_attribute(#k, &{ let v = #expr_tokens; v.to_string() }).expect("Failed to set dynamic attribute");
+                                    })
+                                } else {
+                                    None
+                                }
+                            },
+                            Attribute::EventListener(_) => None,
+                        }
+                    }).collect::<Vec<_>>();
+
+                    let event_listeners = attributes.iter().filter_map(|(k, v)| {
+                        match v {
+                            Attribute::EventListener(handler) => {
+                                // Extract event name from attribute (e.g., "onclick" -> "click")
+                                let event_name = if k.starts_with("on") && k.len() > 2 {
+                                    &k[2..] // Remove "on" prefix
+                                } else {
+                                    return None; // Skip invalid event names
+                                };
+
+                                if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
+                                    Some(quote! {
+                                        {
+                                            use apex::wasm_bindgen::prelude::*;
+                                            use apex::web_sys::*;
+
+                                            let handler_fn = (#handler_tokens).clone();
+                                            let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                                                handler_fn(event);
+                                            }) as Box<dyn FnMut(web_sys::Event)>);
+
+                                            let _ = new_element.add_event_listener_with_callback(
+                                                #event_name,
+                                                closure.as_ref().unchecked_ref()
+                                            );
+
+                                            closure.forget(); // Prevent cleanup
+                                        }
+                                    })
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        }
+                    }).collect::<Vec<_>>();
+
+                    let child_fns = render_ast(children);
+
+                    result.push(quote! {
+                        {
+                            use apex::web_sys::*;
+
+                            let window = apex::web_sys::window().expect("no global `window` exists");
+                            let document = window.document().expect("should have a document on window");
+                            let new_element = document.create_element(#tag_name).expect("Failed to create element");
+
+                            #(#attr_setters)*
+
+                            let _ = element.append_child(&new_element);
+
+                            #(#event_listeners)*
+
+                            {
+                                let element = &new_element;
+                                #(#child_fns)*
                             }
                         }
-                        Attribute::Expression(expr) => {
-                            if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
-                                quote! { #expr_tokens }
-                            } else {
-                                continue;
-                            }
-                        }
-                        Attribute::Signal(signal) => {
-                            if let Ok(signal_tokens) = syn::parse_str::<syn::Expr>(signal) {
-                                quote! { #signal_tokens }
-                            } else {
-                                continue;
-                            }
-                        }
-                        Attribute::EventListener(handler) => {
-                            if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
-                                quote! { #handler_tokens }
-                            } else {
-                                continue;
-                            }
-                        }
-                    };
-
-                    builder_chain = quote! { #builder_chain.#method_name(#value_expr) };
+                    });
                 }
-
-                // Add builder calls for slots
-                for (slot_name, slot_html) in &slot_map {
-                    let method_name = syn::Ident::new(slot_name, proc_macro2::Span::call_site());
-                    builder_chain = quote! { #builder_chain.#method_name(#slot_html) };
-                }
-
-                // Generate children Html if non-slot children exist (for default slot)
-                if !non_slot_children.is_empty() {
-                    let child_fns = render_ast(&non_slot_children);
-
-                    let children_html = quote! {
-                        apex::Html::new(|element| {
-                            #(#child_fns)*
-                        })
-                    };
-
-                    builder_chain = quote! { #builder_chain.children(#children_html) };
-                }
-
-                // Complete the builder chain with .build()
-                let component_instance = quote! { #builder_chain.build() };
-
-                result.push(quote! {
-                    {
-                        let component_instance = #component_instance;
-                        let component_html = component_instance.render();
-                        component_html.mount(Some(&element)).expect("Failed to mount component");
-                    }
-                });
             }
             TmplAst::SlotInterpolation { slot_name } => {
                 let slot_name = syn::Ident::new(slot_name, proc_macro2::Span::call_site());
@@ -508,10 +354,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
             } => {
                 // Slots are not rendered directly, they are passed to components
             }
-            TmplAst::Conditional {
-                if_blocks,
-                else_block,
-            } => {
+            TmplAst::ConditionalDirective(if_blocks) => {
                 // TODO: Implement conditional rendering
             }
         }

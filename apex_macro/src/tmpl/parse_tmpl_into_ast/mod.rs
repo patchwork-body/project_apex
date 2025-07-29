@@ -2,6 +2,9 @@ use crate::tmpl::TmplAst;
 
 mod is_pascal_case;
 mod match_chars;
+mod parse_conditional_directive;
+mod parse_directive_name;
+mod parse_directive_params;
 mod parse_element_opening_tag;
 mod parse_slot_name;
 mod process_chars_until;
@@ -20,5 +23,7 @@ pub(crate) fn parse_tmpl_into_ast(input: &str) -> Vec<TmplAst> {
 
     let mut chars = input.chars().peekable();
 
-    process_chars_until(&mut chars, None)
+    let (ast, _) = process_chars_until(&mut chars, None);
+
+    ast
 }
