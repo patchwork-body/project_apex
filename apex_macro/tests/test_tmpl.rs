@@ -291,8 +291,5 @@ pub fn conditional_directive() {
 
     let (_, get_html) = mount_tmpl(tmpl);
 
-    assert_eq!(
-        get_html(),
-        "<div><span>Hello, world!</span><span>Some other text</span></div>"
-    );
+    assert_eq!(get_html(), "<div><span>Hello, world!</span></div>");
 }

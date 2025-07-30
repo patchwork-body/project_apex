@@ -1,4 +1,5 @@
 use crate::tmpl::TmplAst;
+use regex::Regex;
 
 mod is_pascal_case;
 mod match_chars;
@@ -21,8 +22,16 @@ pub(crate) fn parse_tmpl_into_ast(input: &str) -> Vec<TmplAst> {
         .trim()
         .to_owned();
 
-    let mut chars = input.chars().peekable();
+    // Use regex to trim whitespace from expressions in curly braces
+    let re = Regex::new(r"\{([^}]*)\}").unwrap();
+    let input = re
+        .replace_all(&input, |caps: &regex::Captures<'_>| {
+            let expression = caps.get(1).unwrap().as_str().trim();
+            format!("{{{expression}}}")
+        })
+        .to_string();
 
+    let mut chars = input.chars().peekable();
     let (ast, _) = process_chars_until(&mut chars, None);
 
     ast
@@ -241,6 +250,39 @@ mod tests {
     }
 
     #[test]
+    fn conditional_template_with_whitespace() {
+        let input = r#"
+            <div>
+                {#if true}
+                    <span>Hello, world!</span>
+                {#endif}
+            </div>
+        "#;
+
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::ConditionalDirective(vec![IfBlock {
+                    condition: "true".to_owned(),
+                    children: vec![TmplAst::Element {
+                        tag: "span".to_owned(),
+                        attributes: HashMap::new(),
+                        is_component: false,
+                        self_closing: false,
+                        children: vec![TmplAst::Text("Hello, world!".to_owned())],
+                    },],
+                }])],
+            }]
+        );
+    }
+
+    #[test]
     fn conditional_template() {
         let input = r#"
             <div class="dashboard">
@@ -250,6 +292,7 @@ mod tests {
                         <button onclick={delete_user}>Delete User</button>
                     </div>
                 {#endif}
+
                 {#if user.has_notifications}
                     <div class="notifications">
                         <p>You have {notification_count} notifications</p>
@@ -326,6 +369,49 @@ mod tests {
                         },],
                     }]),
                 ],
+            }]
+        );
+    }
+
+    #[test]
+    fn trimming_whitespace_in_directives() {
+        let input = "<div> { #if true } <span>Hello, world!</span> { #endif } </div>";
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::ConditionalDirective(vec![IfBlock {
+                    condition: "true".to_owned(),
+                    children: vec![TmplAst::Element {
+                        tag: "span".to_owned(),
+                        attributes: HashMap::new(),
+                        is_component: false,
+                        self_closing: false,
+                        children: vec![TmplAst::Text("Hello, world!".to_owned())],
+                    },],
+                }])],
+            },]
+        );
+    }
+
+    #[test]
+    fn expression_whitespace_trimming() {
+        let input = "<div> { user.name } </div>";
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::Expression("user.name".to_owned())],
             }]
         );
     }

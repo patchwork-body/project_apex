@@ -92,8 +92,6 @@ pub(crate) fn process_chars_until(
                     }
 
                     state = ProcessCharsUntilState::Expression;
-
-                    chars.next(); // consume '{'
                 } else {
                     if has_temp_whitespace && state == ProcessCharsUntilState::AfterExpression {
                         text.push(' ');
@@ -159,6 +157,10 @@ pub(crate) fn process_chars_until(
                 state = ProcessCharsUntilState::Unknown;
             }
             ProcessCharsUntilState::Expression => {
+                if chars.peek() == Some(&'{') {
+                    chars.next(); // consume '{'
+                }
+
                 if chars.peek() == Some(&'@') {
                     chars.next(); // consume '@'
                     expression_type = ExpressionType::Slot;
@@ -169,10 +171,12 @@ pub(crate) fn process_chars_until(
                     let directive_name = parse_directive_name(chars);
 
                     if directive_name == "if" {
-                        let if_blocks = parse_conditional_directive(chars);
-
-                        ast.push(TmplAst::ConditionalDirective(if_blocks));
+                        ast.push(TmplAst::ConditionalDirective(parse_conditional_directive(
+                            chars,
+                        )));
                     }
+
+                    state = ProcessCharsUntilState::Unknown;
                 } else if chars.peek() == Some(&'}') {
                     chars.next(); // consume '}'
 
@@ -203,8 +207,10 @@ pub(crate) fn process_chars_until(
         }
     }
 
+    text = text.trim_end().to_owned();
+
     if !text.is_empty() {
-        ast.push(TmplAst::Text(text.trim_end().to_owned()));
+        ast.push(TmplAst::Text(text));
     }
 
     (ast, matched_end_of_block)
@@ -885,9 +891,15 @@ mod tests {
 
     #[test]
     fn conditional_directive_inside_element() {
-        let mut chars = "<div>{#if true}Hello, world!{#endif}</div>"
-            .chars()
-            .peekable();
+        let mut chars = r#"
+            <div>
+                {#if 1 + 1 == 2}
+                    Hello, world!
+                {#endif}
+            </div>
+        "#
+        .chars()
+        .peekable();
 
         let (ast, _) = process_chars_until(&mut chars, None);
 
@@ -899,9 +911,110 @@ mod tests {
                 is_component: false,
                 self_closing: false,
                 children: vec![TmplAst::ConditionalDirective(vec![IfBlock {
-                    condition: "true".to_owned(),
+                    condition: "1 + 1 == 2".to_owned(),
                     children: vec![TmplAst::Text("Hello, world!".to_owned())],
                 }])],
+            }]
+        );
+    }
+
+    #[test]
+    fn several_conditional_directives() {
+        let mut chars = r#"
+            <div>
+                {#if 1 + 1 == 2}
+                    <span>
+                        Hello, world 1!
+                    </span>
+                {#endif}
+
+                {#if 1 + 1 == 2}
+                    <span>
+                        Hello, world 2!
+                    </span>
+                {#endif}
+            </div>
+        "#
+        .chars()
+        .peekable();
+
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![
+                    TmplAst::ConditionalDirective(vec![IfBlock {
+                        condition: "1 + 1 == 2".to_owned(),
+                        children: vec![TmplAst::Element {
+                            tag: "span".to_owned(),
+                            attributes: Attributes::new(),
+                            is_component: false,
+                            self_closing: false,
+                            children: vec![TmplAst::Text("Hello, world 1!".to_owned())],
+                        }],
+                    }]),
+                    TmplAst::ConditionalDirective(vec![IfBlock {
+                        condition: "1 + 1 == 2".to_owned(),
+                        children: vec![TmplAst::Element {
+                            tag: "span".to_owned(),
+                            attributes: Attributes::new(),
+                            is_component: false,
+                            self_closing: false,
+                            children: vec![TmplAst::Text("Hello, world 2!".to_owned())],
+                        }],
+                    }])
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn conditions_with_after_elements() {
+        let mut chars = r#"
+            <div>
+                {#if true}
+                    <span>Hello, world!</span>
+                {#endif}
+
+                <span>Hello, world 2!</span>
+            </div>
+        "#
+        .chars()
+        .peekable();
+
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![
+                    TmplAst::ConditionalDirective(vec![IfBlock {
+                        condition: "true".to_owned(),
+                        children: vec![TmplAst::Element {
+                            tag: "span".to_owned(),
+                            attributes: Attributes::new(),
+                            is_component: false,
+                            self_closing: false,
+                            children: vec![TmplAst::Text("Hello, world!".to_owned())],
+                        }],
+                    }]),
+                    TmplAst::Element {
+                        tag: "span".to_owned(),
+                        attributes: Attributes::new(),
+                        is_component: false,
+                        self_closing: false,
+                        children: vec![TmplAst::Text("Hello, world 2!".to_owned())],
+                    },
+                ],
             }]
         );
     }
