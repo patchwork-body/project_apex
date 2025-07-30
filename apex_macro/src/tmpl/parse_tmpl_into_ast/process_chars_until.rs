@@ -19,6 +19,7 @@ enum ExpressionType {
 #[derive(PartialEq)]
 enum ProcessCharsUntilState {
     Unknown,
+    AfterExpression,
     Text,
     Element,
     Expression,
@@ -33,6 +34,7 @@ pub(crate) fn process_chars_until(
     let mut state = ProcessCharsUntilState::Unknown;
     let mut expression_type = ExpressionType::Ordinary;
     let mut matched_end_of_block = "".to_owned();
+    let mut has_temp_whitespace = false;
 
     'outer: while chars.peek().is_some() {
         if chars.peek().is_none() {
@@ -53,14 +55,22 @@ pub(crate) fn process_chars_until(
         }
 
         match state {
-            ProcessCharsUntilState::Unknown | ProcessCharsUntilState::Text => {
-                if state == ProcessCharsUntilState::Unknown && end_of_block.is_none() {
-                    // Skip whitespace between elements only when not inside an element
+            ProcessCharsUntilState::Unknown
+            | ProcessCharsUntilState::Text
+            | ProcessCharsUntilState::AfterExpression => {
+                if state == ProcessCharsUntilState::Unknown
+                    || state == ProcessCharsUntilState::AfterExpression
+                {
+                    // Skip whitespace between elements only when not inside a Text node
                     while chars.peek() == Some(&' ')
                         || chars.peek() == Some(&'\n')
                         || chars.peek() == Some(&'\r')
                         || chars.peek() == Some(&'\t')
                     {
+                        if state == ProcessCharsUntilState::AfterExpression {
+                            has_temp_whitespace = true;
+                        }
+
                         chars.next();
                     }
                 }
@@ -73,15 +83,23 @@ pub(crate) fn process_chars_until(
                         text = String::new();
                     }
                 } else if chars.peek() == Some(&'{') {
-                    state = ProcessCharsUntilState::Expression;
-
-                    if !text.is_empty() {
+                    if has_temp_whitespace && state == ProcessCharsUntilState::AfterExpression {
+                        ast.push(TmplAst::Text(" ".to_owned()));
+                        has_temp_whitespace = false;
+                    } else if !text.is_empty() {
                         ast.push(TmplAst::Text(text));
                         text = String::new();
                     }
 
+                    state = ProcessCharsUntilState::Expression;
+
                     chars.next(); // consume '{'
                 } else {
+                    if has_temp_whitespace && state == ProcessCharsUntilState::AfterExpression {
+                        text.push(' ');
+                        has_temp_whitespace = false;
+                    }
+
                     state = ProcessCharsUntilState::Text;
 
                     let Some(ch) = chars.next() else {
@@ -173,7 +191,7 @@ pub(crate) fn process_chars_until(
                         text = String::new();
                     }
 
-                    state = ProcessCharsUntilState::Unknown;
+                    state = ProcessCharsUntilState::AfterExpression;
                 } else {
                     let Some(ch) = chars.next() else {
                         panic!("Invalid expression syntax")
@@ -186,7 +204,7 @@ pub(crate) fn process_chars_until(
     }
 
     if !text.is_empty() {
-        ast.push(TmplAst::Text(text));
+        ast.push(TmplAst::Text(text.trim_end().to_owned()));
     }
 
     (ast, matched_end_of_block)
@@ -194,7 +212,7 @@ pub(crate) fn process_chars_until(
 
 #[cfg(test)]
 mod tests {
-    use crate::tmpl::{Attribute, Attributes};
+    use crate::tmpl::{Attribute, Attributes, IfBlock};
 
     use super::*;
 
@@ -226,6 +244,23 @@ mod tests {
     #[test]
     fn element_with_text() {
         let mut chars = "<div>Hello, world!</div>".chars().peekable();
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                self_closing: false,
+                is_component: false,
+                children: vec![TmplAst::Text("Hello, world!".to_owned())],
+            }]
+        );
+    }
+
+    #[test]
+    fn element_with_text_and_whitespace() {
+        let mut chars = "<div>  Hello, world!  </div>".chars().peekable();
         let (ast, _) = process_chars_until(&mut chars, None);
 
         assert_eq!(
@@ -658,7 +693,7 @@ mod tests {
                 self_closing: false,
                 children: vec![
                     TmplAst::Expression("1 + 1".to_owned()),
-                    TmplAst::Text("  ".to_owned()),
+                    TmplAst::Text(" ".to_owned()),
                     TmplAst::Expression("2 + 2".to_owned()),
                 ],
             }]
@@ -679,9 +714,9 @@ mod tests {
                 self_closing: false,
                 children: vec![
                     TmplAst::Expression("1 + 1".to_owned()),
-                    TmplAst::Text("\t".to_owned()),
+                    TmplAst::Text(" ".to_owned()),
                     TmplAst::Expression("2 + 2".to_owned()),
-                    TmplAst::Text("\n".to_owned()),
+                    TmplAst::Text(" ".to_owned()),
                     TmplAst::Expression("3 + 3".to_owned()),
                 ],
             }]
@@ -830,6 +865,43 @@ mod tests {
                     TmplAst::Text(" ".to_owned()),
                     TmplAst::Expression("2 + 2".to_owned()),
                 ],
+            }]
+        );
+    }
+
+    #[test]
+    fn conditional_directive() {
+        let mut chars = "{#if true}Hello, world!{#endif}".chars().peekable();
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::ConditionalDirective(vec![IfBlock {
+                condition: "true".to_owned(),
+                children: vec![TmplAst::Text("Hello, world!".to_owned())],
+            }])]
+        );
+    }
+
+    #[test]
+    fn conditional_directive_inside_element() {
+        let mut chars = "<div>{#if true}Hello, world!{#endif}</div>"
+            .chars()
+            .peekable();
+
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::ConditionalDirective(vec![IfBlock {
+                    condition: "true".to_owned(),
+                    children: vec![TmplAst::Text("Hello, world!".to_owned())],
+                }])],
             }]
         );
     }

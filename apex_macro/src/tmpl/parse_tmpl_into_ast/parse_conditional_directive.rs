@@ -36,5 +36,25 @@ pub(crate) fn parse_conditional_directive(
         if_blocks.extend(parse_conditional_directive(chars));
     }
 
-    panic!("Expected {{#endif}}");
+    if_blocks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tmpl::TmplAst;
+
+    #[test]
+    fn test_parse_conditional_directive() {
+        let mut chars = "true}Hello, world!{#endif}".chars().peekable();
+        let if_blocks = parse_conditional_directive(&mut chars);
+
+        assert_eq!(
+            if_blocks,
+            vec![IfBlock {
+                condition: "true".to_owned(),
+                children: vec![TmplAst::Text("Hello, world!".to_owned())],
+            }]
+        );
+    }
 }

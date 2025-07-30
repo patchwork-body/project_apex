@@ -36,7 +36,7 @@ pub fn button(
     tmpl! {
         <button type="button" class={classes.join(" ")} onclick={onclick} onmousedown={onmousedown} onmouseup={onmouseup}>
             <span class="button-symbol">
-                {$symbol}
+                {symbol.get()}
             </span>
         </button>
     }
@@ -411,8 +411,11 @@ pub fn calculator() -> Html {
     tmpl! {
         <div class="calculator">
             <div class="display">
-                <span class="prev-expression">{$display_prev_expression}</span>
-                {$display_expression}
+                {#if true}
+                    <span class="prev-expression">{display_prev_expression.get()}</span>
+                {#endif}
+
+                <span class="current-expression">{display_expression.get()}</span>
             </div>
 
             <div class="buttons">

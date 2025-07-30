@@ -278,3 +278,21 @@ pub fn test_tmpl_renders_element_with_event_listener_with_signal() {
     assert_eq!(counter_clone.get(), 1);
     assert_eq!(get_html(), "<button>Inc 1</button>");
 }
+
+#[wasm_bindgen_test]
+pub fn conditional_directive() {
+    let tmpl = tmpl! {
+        <div>
+            {#if true}
+                <span>Hello, world!</span>
+            {#endif}
+        </div>
+    };
+
+    let (_, get_html) = mount_tmpl(tmpl);
+
+    assert_eq!(
+        get_html(),
+        "<div><span>Hello, world!</span><span>Some other text</span></div>"
+    );
+}

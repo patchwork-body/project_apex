@@ -355,7 +355,41 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                 // Slots are not rendered directly, they are passed to components
             }
             TmplAst::ConditionalDirective(if_blocks) => {
-                // TODO: Implement conditional rendering
+                let mut ifs = vec![];
+
+                let Some(first_if) = if_blocks.first() else {
+                    continue;
+                };
+
+                if let Ok(condition) = syn::parse_str::<syn::Expr>(&first_if.condition) {
+                    let child_fns = render_ast(&first_if.children);
+
+                    ifs.push(quote! {
+                        if #condition {
+                            #(#child_fns)*
+                        }
+                    });
+                }
+
+                for block in if_blocks.iter().skip(1) {
+                    if let Ok(condition) = syn::parse_str::<syn::Expr>(&block.condition) {
+                        let child_fns = render_ast(&block.children);
+
+                        ifs.push(quote! {
+                            else if #condition {
+                                #(#child_fns)*
+                            }
+                        });
+                    }
+                }
+
+                if !ifs.is_empty() {
+                    result.push(quote! {
+                        {
+                            #(#ifs)*
+                        }
+                    });
+                }
             }
         }
     }
