@@ -14,7 +14,7 @@ fn get_unique_id() -> usize {
     })
 }
 
-pub(crate) fn mount_tmpl(tmpl: Html) -> (String, impl Fn() -> String) {
+pub(crate) fn mount_tmpl(mut tmpl: Html) -> (String, impl Fn() -> String) {
     let window = web_sys::window().expect("no global `window` exists");
     let document = window.document().expect("no global `document` exists");
     let body = document.body().expect("no global `body` exists");

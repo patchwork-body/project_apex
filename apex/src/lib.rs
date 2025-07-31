@@ -24,19 +24,24 @@ pub trait View {
     fn render(&self) -> Html;
 }
 
-type HtmlCallback = Rc<Closure<dyn Fn(web_sys::Element)>>;
+type MountCallback = Rc<Closure<dyn Fn(web_sys::Element) -> js_sys::Function>>;
+type UnmountCallback = Rc<Closure<dyn Fn()>>;
 
 /// Represents rendered HTML content
 ///
 /// This type wraps HTML strings and provides a safe way to handle HTML content
 #[derive(Debug, Clone)]
 pub struct Html {
-    callback: HtmlCallback,
+    mount_callback: MountCallback,
+    unmount_callback: Option<UnmountCallback>,
 }
 
 impl Default for Html {
     fn default() -> Self {
-        Html::new(|_| {})
+        Html::new(|_| {
+            let callback: Closure<dyn Fn()> = Closure::new(Box::new(|| {}) as Box<dyn Fn()>);
+            callback.into_js_value().dyn_into().unwrap()
+        })
     }
 }
 
@@ -44,12 +49,13 @@ impl Html {
     /// Create Html with a callback function for dynamic content generation
     pub fn new<F>(callback: F) -> Self
     where
-        F: Fn(web_sys::Element) + 'static,
+        F: Fn(web_sys::Element) -> js_sys::Function + 'static,
     {
         Html {
-            callback: Rc::new(Closure::wrap(
-                Box::new(callback) as Box<dyn Fn(web_sys::Element)>
+            mount_callback: Rc::new(Closure::wrap(
+                Box::new(callback) as Box<dyn Fn(web_sys::Element) -> js_sys::Function>
             )),
+            unmount_callback: None,
         }
     }
 
@@ -59,8 +65,11 @@ impl Html {
     /// * `target` - Optional target element (defaults to document body)
     ///
     /// # Returns
-    /// * `Result<(), wasm_bindgen::JsValue>` - Ok if successful, Err with JS error if failed
-    pub fn mount(&self, target: Option<&web_sys::Element>) -> Result<(), wasm_bindgen::JsValue> {
+    /// * `Result<js_sys::Function, wasm_bindgen::JsValue>` - Ok with callback function if successful, Err with JS error if failed
+    pub fn mount(
+        &mut self,
+        target: Option<&web_sys::Element>,
+    ) -> Result<(), wasm_bindgen::JsValue> {
         use web_sys::{Element, window};
 
         let target_element: Element = if let Some(element) = target {
@@ -71,16 +80,17 @@ impl Html {
             document.body().ok_or("No body element")?.into()
         };
 
-        let func: &js_sys::Function = self.callback.as_ref().as_ref().unchecked_ref();
-        func.call1(&wasm_bindgen::JsValue::NULL, &target_element.clone().into())?;
+        let func: &js_sys::Function = self.mount_callback.as_ref().as_ref().unchecked_ref();
+        let result = func.call1(&wasm_bindgen::JsValue::NULL, &target_element.clone().into())?;
+
+        // The result should be a JavaScript function
+        let js_function: js_sys::Function = result.dyn_into()?;
+
+        self.unmount_callback = Some(Rc::new(Closure::new(Box::new(move || {
+            let _ = js_function.call0(&wasm_bindgen::JsValue::NULL);
+        }))));
 
         Ok(())
-    }
-
-    /// Update the mounted HTML by re-executing the callback
-    /// This is useful for reactive updates when state changes
-    pub fn update(&self, target: Option<&web_sys::Element>) -> Result<(), wasm_bindgen::JsValue> {
-        self.mount(target)
     }
 }
 
@@ -89,9 +99,12 @@ impl TryFrom<String> for Html {
 
     fn try_from(content: String) -> Result<Self, Self::Error> {
         Ok(Html {
-            callback: Rc::new(Closure::new(Box::new(move |element: web_sys::Element| {
+            mount_callback: Rc::new(Closure::new(Box::new(move |element: web_sys::Element| {
                 element.set_inner_html(&content);
+                let callback: Closure<dyn Fn()> = Closure::new(Box::new(|| {}) as Box<dyn Fn()>);
+                callback.into_js_value().dyn_into().unwrap()
             }))),
+            unmount_callback: None,
         })
     }
 }
@@ -101,9 +114,12 @@ impl From<&str> for Html {
         let owned_content = content.to_string();
 
         Html {
-            callback: Rc::new(Closure::new(Box::new(move |element: web_sys::Element| {
+            mount_callback: Rc::new(Closure::new(Box::new(move |element: web_sys::Element| {
                 element.set_inner_html(&owned_content);
+                let callback: Closure<dyn Fn()> = Closure::new(Box::new(|| {}) as Box<dyn Fn()>);
+                callback.into_js_value().dyn_into().unwrap()
             }))),
+            unmount_callback: None,
         }
     }
 }
@@ -113,7 +129,8 @@ impl std::fmt::Display for Html {
         if let Some(window) = window() {
             if let Some(document) = window.document() {
                 if let Ok(temp_element) = document.create_element("div") {
-                    let func: &js_sys::Function = self.callback.as_ref().as_ref().unchecked_ref();
+                    let func: &js_sys::Function =
+                        self.mount_callback.as_ref().as_ref().unchecked_ref();
 
                     if func
                         .call1(&wasm_bindgen::JsValue::NULL, &temp_element.clone().into())
@@ -140,7 +157,7 @@ impl Apex {
     }
 
     /// Hydrate the client-side application with a component
-    pub fn hydrate(self, html: Html) -> Result<(), wasm_bindgen::JsValue> {
+    pub fn hydrate(self, mut html: Html) -> Result<(), wasm_bindgen::JsValue> {
         let window = window().ok_or("No global window object")?;
         let document = window.document().ok_or("No document object")?;
 

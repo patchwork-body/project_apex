@@ -251,7 +251,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                     result.push(quote! {
                         {
                             let component_instance = #component_instance;
-                            let component_html = component_instance.render();
+                            let mut component_html = component_instance.render();
                             component_html.mount(Some(&element)).expect("Failed to mount component");
                         }
                     });
@@ -355,7 +355,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                 // Slots are not rendered directly, they are passed to components
             }
             TmplAst::ConditionalDirective(if_blocks) => {
-                let mut ifs = vec![];
+                let mut conditional_chain = vec![];
 
                 let Some(first_if) = if_blocks.first() else {
                     continue;
@@ -364,7 +364,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                 if let Ok(condition) = syn::parse_str::<syn::Expr>(&first_if.condition) {
                     let child_fns = render_ast(&first_if.children);
 
-                    ifs.push(quote! {
+                    conditional_chain.push(quote! {
                         if #condition {
                             #(#child_fns)*
                         }
@@ -375,7 +375,7 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                     if let Ok(condition) = syn::parse_str::<syn::Expr>(&block.condition) {
                         let child_fns = render_ast(&block.children);
 
-                        ifs.push(quote! {
+                        conditional_chain.push(quote! {
                             else if #condition {
                                 #(#child_fns)*
                             }
@@ -383,10 +383,10 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                     }
                 }
 
-                if !ifs.is_empty() {
+                if !conditional_chain.is_empty() {
                     result.push(quote! {
                         {
-                            #(#ifs)*
+                            #(#conditional_chain)*
                         }
                     });
                 }
