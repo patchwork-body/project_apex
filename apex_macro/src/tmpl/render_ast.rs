@@ -380,7 +380,17 @@ pub(crate) fn render_ast(content: &[TmplAst]) -> Vec<proc_macro2::TokenStream> {
                 if !conditional_chain.is_empty() {
                     result.push(quote! {
                         {
+                            use apex::web_sys::*;
+
+                            let window = window().expect("no global `window` exists");
+                            let document = window.document().expect("should have a document on window");
+
+                            let comment_start = document.create_comment("apex-if-block-start");
+                            let comment_end = document.create_comment("apex-if-block-end");
+
+                            let _ = element.append_child(&comment_start);
                             #(#conditional_chain)*
+                            let _ = element.append_child(&comment_end);
                         }
                     });
                 }
