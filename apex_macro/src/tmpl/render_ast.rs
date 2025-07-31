@@ -21,16 +21,10 @@ impl IdentifierVisitor {
 
 impl<'ast> Visit<'ast> for IdentifierVisitor {
     fn visit_path(&mut self, path: &'ast syn::Path) {
-        // Extract identifiers from paths (like variable names)
         if let Some(ident) = path.get_ident() {
             let ident_str = ident.to_string();
 
-            // Skip common keywords and function names
-            if !matches!(
-                ident_str.as_str(),
-                "println" | "format" | "get" | "set" | "clone"
-            ) && self.seen.insert(ident_str)
-            {
+            if self.seen.insert(ident_str) {
                 self.identifiers.push(ident.clone());
             }
         }
