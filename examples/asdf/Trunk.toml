@@ -1,0 +1,28 @@
+[build]
+# The index HTML file to use as the root for builds
+target = "index.html"
+
+# The output directory for built assets
+dist = "dist"
+
+# Whether to include hash in filenames for cache busting
+filehash = true
+
+# The public URL where the built app will be served from
+public_url = "/"
+
+[watch]
+# Additional paths to watch for changes
+watch = ["src/", "index.html"]
+
+[serve]
+# Address to serve the app on
+address = "127.0.0.1"
+# Port to serve the app on
+port = 8080
+# Open browser automatically
+open = false
+
+[clean]
+# The dist directory
+dist = "dist"

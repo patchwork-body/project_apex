@@ -44,12 +44,12 @@ pub(crate) fn validate_component_function(input: &ItemFn) {
     match &input.sig.output {
         ReturnType::Type(_, ty) => {
             // Check if return type is Html (simple check, could be improved)
-            if !is_html_type(ty) {
-                panic!("Component functions must return Html");
-            }
+            // if !is_html_type(ty) {
+            //     panic!("Component functions must return Html");
+            // }
         }
         ReturnType::Default => {
-            panic!("Component functions must have an explicit Html return type");
+            // panic!("Component functions must have an explicit Html return type");
         }
     }
 }

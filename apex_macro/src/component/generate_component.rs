@@ -148,7 +148,8 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         }))
         .chain([quote! {
             let children = self.children.clone();
-        }]);
+        }])
+        .collect::<Vec<_>>();
 
     // Generate builder default field values
     let builder_default_fields = props
@@ -197,8 +198,17 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         impl apex::View for #struct_name {
-            fn render(&self) -> apex::Html {
+            fn render(&self) -> String {
+                #(#prop_bindings)*
+                #fn_body
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        impl #struct_name {
+            pub fn hydrate(&self) -> impl Fn(&std::collections::HashMap<String, web_sys::Text>, &std::collections::HashMap<String, web_sys::Element>) {
                 #(#prop_bindings)*
                 #fn_body
             }

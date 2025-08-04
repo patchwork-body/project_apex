@@ -4,7 +4,6 @@ use crate::tmpl::{Attribute, TmplAst};
 use quote::quote;
 use syn::{Ident, visit::Visit};
 
-// The IdentifierVisitor I referenced
 struct IdentifierVisitor {
     identifiers: Vec<Ident>,
     seen: HashSet<String>,

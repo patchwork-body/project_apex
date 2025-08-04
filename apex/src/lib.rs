@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
+use web_sys::{Comment, Element, Text};
 
 pub mod prelude;
 
@@ -13,6 +14,7 @@ use web_sys::window;
 
 pub mod action;
 pub mod signal;
+pub mod template;
 
 /// Trait that defines the view layer for components
 ///
@@ -21,7 +23,7 @@ pub trait View {
     /// Render the component to Html
     ///
     /// This method should return the complete HTML representation of the component
-    fn render(&self) -> Html;
+    fn render(&self) -> String;
 }
 
 type MountCallback = Rc<Closure<dyn Fn(web_sys::Element) -> js_sys::Function>>;
@@ -165,5 +167,77 @@ impl Apex {
         html.mount(Some(&body))?;
 
         Ok(())
+    }
+
+    pub fn hydrate2(
+        f: impl Fn(&HashMap<String, web_sys::Text>, &HashMap<String, web_sys::Element>),
+    ) {
+        static SHOW_COMMENT: u32 = 128;
+
+        let window = web_sys::window().expect("window not found");
+        let document = window.document().expect("document not found");
+
+        let tree_walker = document
+            .create_tree_walker_with_what_to_show(
+                &document.body().expect("body not found"),
+                SHOW_COMMENT,
+            )
+            .expect("tree walker not found");
+
+        let mut expressions_map: HashMap<String, web_sys::Text> = HashMap::new();
+        let mut elements_map: HashMap<String, web_sys::Element> = HashMap::new();
+        let mut nodes_to_remove = Vec::new();
+
+        while let Ok(Some(node)) = tree_walker.next_node() {
+            if let Some(comment) = node.dyn_ref::<Comment>() {
+                let data = comment.data();
+                let parts: Vec<String> = data.split(":").map(|s| s.trim().to_string()).collect();
+
+                if parts.len() < 2 {
+                    continue;
+                }
+
+                let comment_type = &parts[0];
+                let comment_id = &parts[1];
+
+                if comment_type == "@expr-text-begin" {
+                    let next_node = comment.next_sibling().expect("next node not found") else {
+                        continue;
+                    };
+
+                    let text_node = next_node.dyn_ref::<Text>().expect("text node not found");
+                    expressions_map.insert(comment_id.clone(), text_node.clone());
+
+                    let next_node = next_node.next_sibling().expect("next node not found") else {
+                        continue;
+                    };
+
+                    let end_comment = next_node
+                        .dyn_ref::<Comment>()
+                        .expect("end comment node not found");
+
+                    nodes_to_remove.push(comment.clone());
+                    nodes_to_remove.push(end_comment.clone());
+                } else if comment_type == "@element" {
+                    let next_node = comment.next_sibling().expect("next node not found") else {
+                        continue;
+                    };
+
+                    let element_node = next_node
+                        .dyn_ref::<Element>()
+                        .expect("element node not found");
+
+                    elements_map.insert(comment_id.clone(), element_node.clone());
+
+                    nodes_to_remove.push(comment.clone());
+                }
+            }
+        }
+
+        for node in nodes_to_remove {
+            node.remove();
+        }
+
+        f(&expressions_map, &elements_map);
     }
 }
