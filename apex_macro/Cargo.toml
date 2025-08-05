@@ -11,6 +11,7 @@ workspace = true
 proc-macro = true
 
 [dependencies]
+apex_utils = { path = "../apex_utils" }
 proc-macro2 = "^1"
 quote = "^1"
 syn = { version = "^2", features = ["full", "extra-traits"] }
@@ -21,8 +22,8 @@ web-sys = { version = "^0.3", features = [
 lazy_static = "^1"
 
 [dev-dependencies]
-prettyplease = "^0.2"
 apex = { path = "../apex" }
+prettyplease = "^0.2"
 wasm-bindgen-test = "^0.3"
 wasm-bindgen-futures = "^0.4"
 wasm-bindgen = "^0.2"

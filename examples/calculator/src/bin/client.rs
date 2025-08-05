@@ -1,9 +1,11 @@
 #![allow(missing_docs)]
 
-use apex::Apex;
-use apex::prelude::*;
-use calculator::Calculator;
-
 fn main() {
-    let _ = Apex::new().hydrate(tmpl! { <Calculator /> });
+    #[cfg(target_arch = "wasm32")]
+    {
+        use apex::prelude::*;
+        use calculator::Calculator;
+
+        apex::Apex::hydrate(tmpl! { <Calculator /> });
+    }
 }

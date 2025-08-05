@@ -1,11 +1,8 @@
 mod parse_tmpl;
-mod parse_tmpl2;
 mod parse_tmpl_into_ast;
 mod render_ast;
-mod render_ast2;
 
 pub(crate) use parse_tmpl::*;
-pub(crate) use parse_tmpl2::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Attribute {

@@ -37,6 +37,7 @@ name = "apex"
 version = "0.1.0"
 dependencies = [
  "apex_macro",
+ "apex_utils",
  "axum",
  "bytes",
  "console_error_panic_hook",
@@ -60,6 +61,7 @@ name = "apex_macro"
 version = "0.1.0"
 dependencies = [
  "apex",
+ "apex_utils",
  "js-sys",
  "lazy_static",
  "prettyplease",
@@ -72,6 +74,10 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
 ]
+
+[[package]]
+name = "apex_utils"
+version = "0.1.0"
 
 [[package]]
 name = "asdf"
@@ -244,10 +250,10 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper",
- "js-sys",
  "sqlx",
  "tokio",
  "tower",
+ "tower-http",
  "wasm-bindgen",
  "web-sys",
 ]

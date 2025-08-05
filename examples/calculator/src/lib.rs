@@ -411,10 +411,7 @@ pub fn calculator() -> Html {
     tmpl! {
         <div class="calculator">
             <div class="display">
-                {#if true}
-                    <span class="prev-expression">{display_prev_expression.get()}</span>
-                {#endif}
-
+                <span class="prev-expression">{display_prev_expression.get()}</span>
                 <span class="current-expression">{display_expression.get()}</span>
             </div>
 

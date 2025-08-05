@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 
 #[component]
 pub fn Title() {
-    tmpl2! {
+    tmpl! {
         <h1>Hello, World!</h1>
     }
 }
@@ -18,7 +18,7 @@ pub fn counter() {
         counter.update(|c| c + 1);
     });
 
-    tmpl2! {
+    tmpl! {
         <div>
             <Title />
             <h1>Hello, {counter.get()}!</h1>
@@ -31,10 +31,8 @@ pub fn counter() {
 pub fn main() {
     #[cfg(target_arch = "wasm32")]
     {
-        let t = tmpl2! {
+        apex::Apex::hydrate(tmpl! {
             <Counter />
-        };
-
-        apex::Apex::hydrate2(t);
+        });
     }
 }

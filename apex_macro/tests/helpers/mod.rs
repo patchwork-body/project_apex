@@ -14,20 +14,20 @@ fn get_unique_id() -> usize {
     })
 }
 
-pub(crate) fn mount_tmpl(mut tmpl: Html) -> (String, impl Fn() -> String) {
-    let window = web_sys::window().expect("no global `window` exists");
-    let document = window.document().expect("no global `document` exists");
-    let body = document.body().expect("no global `body` exists");
-    let target = document
-        .create_element("div")
-        .expect("no global `div` exists");
+// pub(crate) fn mount_tmpl(mut tmpl: Html) -> (String, impl Fn() -> String) {
+//     let window = web_sys::window().expect("no global `window` exists");
+//     let document = window.document().expect("no global `document` exists");
+//     let body = document.body().expect("no global `body` exists");
+//     let target = document
+//         .create_element("div")
+//         .expect("no global `div` exists");
 
-    let id = format!("test-container-{}", get_unique_id());
-    target.set_id(&id);
+//     let id = format!("test-container-{}", get_unique_id());
+//     target.set_id(&id);
 
-    let _ = body.append_child(&target);
+//     let _ = body.append_child(&target);
 
-    tmpl.mount(Some(&target)).unwrap();
+//     tmpl.mount(Some(&target)).unwrap();
 
-    (id, move || target.inner_html())
-}
+//     (id, move || target.inner_html())
+// }

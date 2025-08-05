@@ -1,17 +1,20 @@
+#![allow(missing_docs)]
+
 use apex::prelude::*;
-use asdf::Counter;
 use axum::{Router, response::Html, routing::get};
+use calculator::Calculator;
 use tower_http::services::ServeDir;
 
 #[tokio::main]
 async fn main() {
-    // build our application with a single route
     let app = Router::new()
         .route(
             "/",
             get(|| async {
-                let template = tmpl2! {
-                    <Counter />
+                apex::apex_utils::reset_counters();
+
+                let template = tmpl! {
+                    <Calculator />
                 };
 
                 let index_html = format!(
@@ -22,8 +25,9 @@ async fn main() {
                             <meta charset="UTF-8">
                             <meta name="viewport" content="width=device-width, initial-scale=1.0">
                             <title>Apex WASM Example</title>
+                            <link rel="stylesheet" href="/static/styles.css">
                             <script type="module">
-                                import init from '/static/asdf.js';
+                                import init from '/static/client.js';
 
                                 async function run() {{
                                     try {{
