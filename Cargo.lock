@@ -80,27 +80,6 @@ name = "apex_utils"
 version = "0.1.0"
 
 [[package]]
-name = "asdf"
-version = "0.1.0"
-dependencies = [
- "apex",
- "apex_macro",
- "axum",
- "bytes",
- "console_error_panic_hook",
- "http",
- "http-body-util",
- "hyper",
- "js-sys",
- "sqlx",
- "tokio",
- "tower",
- "tower-http",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,4 +1,3 @@
-use crate::component::is_html_type;
 use syn::{FnArg, ItemFn, Pat, ReturnType};
 
 /// Validate that the function has the correct signature for a component
