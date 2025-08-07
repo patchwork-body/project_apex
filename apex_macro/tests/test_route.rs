@@ -1,18 +1,20 @@
+#![allow(missing_docs)]
+
 use apex_macro::{component, route};
 use std::collections::HashMap;
 
 // Test component for route testing
 #[component]
 fn home_component() -> String {
-    "Welcome to Home!".to_string()
+    "Welcome to Home!".to_owned()
 }
 
 // Test route with component
 #[route(component = HomeComponent)]
 fn home_route(params: HashMap<String, String>) -> String {
     // This function logic will be executed, but the component will be rendered
-    let _user_id = params.get("id").unwrap_or(&"guest".to_string());
-    "Custom logic executed".to_string()
+    let _user_id = params.get("id").unwrap_or(&"guest".to_owned());
+    "Custom logic executed".to_owned()
 }
 
 // Test route without component
@@ -20,7 +22,7 @@ fn home_route(params: HashMap<String, String>) -> String {
 fn about_route(params: HashMap<String, String>) -> String {
     format!(
         "About page for user: {}",
-        params.get("id").unwrap_or(&"anonymous".to_string())
+        params.get("id").unwrap_or(&"anonymous".to_owned())
     )
 }
 
@@ -36,7 +38,7 @@ async fn test_route_with_component() {
 #[tokio::test]
 async fn test_route_without_component() {
     let mut params = HashMap::new();
-    params.insert("id".to_string(), "testuser".to_string());
+    params.insert("id".to_owned(), "testuser".to_owned());
 
     let result = about_route(params).await;
     assert_eq!(result, "About page for user: testuser");
