@@ -4,7 +4,6 @@ use apex::prelude::*;
 use apex::router::ApexRouter;
 use axum::{Router, extract::Path, response::Html, routing::get};
 use calculator::CalculatorPage;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 
@@ -12,22 +11,14 @@ use tower_http::services::ServeDir;
     component = CalculatorPage
 )]
 fn root_page(params: HashMap<String, String>) {
+    apex::apex_utils::reset_counters();
     println!("Root page accessed with params: {params:?}");
 }
 
 #[tokio::main]
 async fn main() {
     // Create the Apex router with our routes
-    let apex_router = Arc::new(ApexRouter::new().route(
-        "/",
-        |_params: HashMap<String, String>| async {
-            apex::apex_utils::reset_counters();
-
-            tmpl! {
-                <CalculatorPage />
-            }
-        },
-    ));
+    let apex_router = Arc::new(ApexRouter::new().route("/", root_page));
 
     // Create Axum app that delegates to Apex router for dynamic routes
     // but still handles static files directly
