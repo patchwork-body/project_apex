@@ -41,7 +41,7 @@ pub(crate) fn validate_component_function(input: &ItemFn) {
 
     // Check that function returns Html
     match &input.sig.output {
-        ReturnType::Type(_, ty) => {
+        ReturnType::Type(_, _ty) => {
             // Check if return type is Html (simple check, could be improved)
             // if !is_html_type(ty) {
             //     panic!("Component functions must return Html");

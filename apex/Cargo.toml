@@ -7,7 +7,7 @@ edition = "2024"
 # WASM-compatible dependencies (available for all targets)
 wasm-bindgen = "^0.2"
 web-sys = { version = "^0.3", features = [
-  "Window", "Document", "Element", "HtmlButtonElement", "HtmlDivElement", "Comment", "TreeWalker", "NodeFilter", "Node", "NodeList", "Text", "Event", "console", "NodeList", "NodeIterator"
+  "Window", "Document", "Element", "HtmlButtonElement", "HtmlDivElement", "Comment", "TreeWalker", "NodeFilter", "Node", "NodeList", "Text", "Event", "console", "NodeList", "NodeIterator", "History", "Location", "PopStateEvent"
 ] }
 js-sys = "^0.3"
 bytes = "^1.10"
@@ -17,6 +17,7 @@ quote = "^1.0"
 syn = { version = "^2.0", features = ["full"] }
 apex_macro = { path = "../apex_macro" }
 apex_utils = { path = "../apex_utils" }
+matchit = "0.8"
 
 # Optional WASM dependencies
 console_error_panic_hook = { version = "^0.1", optional = true }

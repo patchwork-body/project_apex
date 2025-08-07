@@ -18,7 +18,7 @@ pub fn button(
     #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onclick: Rc<dyn Fn(web_sys::Event)>,
     #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onmousedown: Rc<dyn Fn(web_sys::Event)>,
     #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onmouseup: Rc<dyn Fn(web_sys::Event)>,
-) -> Html {
+) {
     let mut classes = vec!["button"];
 
     if wide {
@@ -284,7 +284,7 @@ impl Expression {
 }
 
 #[component]
-pub fn calculator() -> Html {
+pub fn calculator() {
     let expression = signal!(Expression::default());
     let prev_expression = signal!(None::<Expression>);
 

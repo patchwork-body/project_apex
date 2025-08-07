@@ -12,7 +12,11 @@ pub use wasm_bindgen;
 pub use web_sys;
 
 pub mod action;
+pub mod router;
 pub mod signal;
+
+// Re-export main types for easy access
+pub use router::ApexRouter;
 
 pub struct Apex;
 
