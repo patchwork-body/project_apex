@@ -265,6 +265,38 @@ mod tests {
     }
 
     #[test]
+    fn element_with_text_that_contains_path() {
+        let mut chars = "<div>Hello, <a href=\"/path\">world</a>!</div>"
+            .chars()
+            .peekable();
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                self_closing: false,
+                is_component: false,
+                children: vec![
+                    TmplAst::Text("Hello, ".to_owned()),
+                    TmplAst::Element {
+                        tag: "a".to_owned(),
+                        attributes: Attributes::from([(
+                            "href".to_owned(),
+                            Attribute::Literal("/path".to_owned()),
+                        )]),
+                        self_closing: false,
+                        is_component: false,
+                        children: vec![TmplAst::Text("world".to_owned())],
+                    },
+                    TmplAst::Text("!".to_owned()),
+                ],
+            }]
+        );
+    }
+
+    #[test]
     fn element_with_text_and_whitespace() {
         let mut chars = "<div>  Hello, world!  </div>".chars().peekable();
         let (ast, _) = process_chars_until(&mut chars, None);

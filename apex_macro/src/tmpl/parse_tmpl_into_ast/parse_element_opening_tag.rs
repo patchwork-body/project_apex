@@ -53,12 +53,16 @@ pub(crate) fn parse_element_opening_tag(
 
             break;
         } else if ch == '/' {
-            is_self_closing = true;
-            insert_attribute(
-                &mut element_attrs,
-                &mut attribute_name,
-                &mut attribute_value,
-            );
+            if state == ElementOpeningTagState::AttributeValue {
+                attribute_value.push(ch);
+            } else {
+                is_self_closing = true;
+                insert_attribute(
+                    &mut element_attrs,
+                    &mut attribute_name,
+                    &mut attribute_value,
+                );
+            }
         } else if ch == ' ' {
             match state {
                 ElementOpeningTagState::Void => state = ElementOpeningTagState::AttributeName,
@@ -226,6 +230,19 @@ mod tests {
                     Attribute::EventListener("handle_click".to_owned())
                 )
             ])
+        );
+        assert!(!is_self_closing);
+    }
+
+    #[test]
+    fn test_tag_with_path_attribute() {
+        let mut chars = "<a href=\"/path\">".chars().peekable();
+        let (element_name, element_attrs, is_self_closing) = parse_element_opening_tag(&mut chars);
+
+        assert_eq!(element_name, "a");
+        assert_eq!(
+            element_attrs,
+            Attributes::from([("href".to_owned(), Attribute::Literal("/path".to_owned()))])
         );
         assert!(!is_self_closing);
     }

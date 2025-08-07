@@ -440,6 +440,24 @@ pub fn calculator() {
     }
 }
 
+#[component]
+pub fn calculator_page() {
+    tmpl! {
+        <html lang="en">
+            <head>
+                <meta charset="UTF-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                <title>Calculator</title>
+                <link rel="stylesheet" href="/static/styles.css" />
+                <script type="module" src="/static/init.js"></script>
+            </head>
+            <body>
+                <Calculator />
+            </body>
+        </html>
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
