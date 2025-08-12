@@ -17,7 +17,7 @@ The project uses a Cargo workspace with these core crates:
 
 Key dependencies:
 
-- Server-side: Hyper, Tokio, Axum for HTTP handling
+- Server-side: Hyper, Tokio for HTTP handling
 - Client-side: wasm-bindgen, web-sys, js-sys for DOM manipulation
 - Macro development: syn, quote, proc-macro2
 

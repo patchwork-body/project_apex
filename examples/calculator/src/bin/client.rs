@@ -4,8 +4,8 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     {
         use apex::prelude::*;
-        use calculator::CalculatorPage;
+        use calculator::Layout;
 
-        apex::Apex::hydrate(tmpl! { <CalculatorPage /> });
+        apex::Apex::hydrate(tmpl! { <Layout /> });
     }
 }

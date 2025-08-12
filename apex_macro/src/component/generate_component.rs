@@ -33,6 +33,7 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
     let struct_fields = props.iter().map(|prop| {
         let name = &prop.name;
         let ty = &prop.ty;
+
         quote! {
             pub #name: #ty
         }
@@ -153,7 +154,7 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
 
         #[cfg(target_arch = "wasm32")]
         impl #struct_name {
-            pub fn hydrate(&self) -> impl Fn(&std::collections::HashMap<String, web_sys::Text>, &std::collections::HashMap<String, web_sys::Element>) {
+            pub fn hydrate(&self) -> impl Fn(&std::collections::HashMap<String, apex::web_sys::Text>, &std::collections::HashMap<String, apex::web_sys::Element>) {
                 #(#prop_bindings)*
                 #(#server_context_bindings)*
                 #fn_body

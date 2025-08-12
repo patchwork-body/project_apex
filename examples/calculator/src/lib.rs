@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 use apex::{
-    wasm_bindgen::{JsCast, prelude::Closure},
+    wasm_bindgen::{prelude::Closure, JsCast},
     web_sys,
 };
 use std::{
@@ -290,25 +290,6 @@ pub struct LoaderData {
     pub age: u8,
 }
 
-#[route(component = CalculatorPage, path = "/user/{name}/{age}")]
-pub fn root_page(params: HashMap<String, String>) -> LoaderData {
-    apex::apex_utils::reset_counters();
-    println!("Root page accessed with params: {params:?}");
-
-    LoaderData {
-        name: params
-            .get("name")
-            .unwrap_or(&"Anonymous".to_owned())
-            .to_owned(),
-
-        age: params
-            .get("age")
-            .unwrap_or(&"0".to_owned())
-            .parse::<u8>()
-            .unwrap_or(0),
-    }
-}
-
 #[component]
 pub fn calculator() {
     let expression = signal!(Expression::default());
@@ -505,8 +486,27 @@ pub fn calculator() {
     }
 }
 
+#[route(component = Layout, path = "/{name}/{age}")]
+pub fn root_page(params: HashMap<String, String>) -> LoaderData {
+    apex::apex_utils::reset_counters();
+    println!("Root page accessed with params: {params:?}");
+
+    LoaderData {
+        name: params
+            .get("name")
+            .unwrap_or(&"Anonymous".to_owned())
+            .to_owned(),
+
+        age: params
+            .get("age")
+            .unwrap_or(&"0".to_owned())
+            .parse::<u8>()
+            .unwrap_or(0),
+    }
+}
+
 #[component]
-pub fn calculator_page() {
+pub fn layout() {
     let loader_data = get_root_page_loader_data();
 
     let loader_name = derive!(loader_data, {
