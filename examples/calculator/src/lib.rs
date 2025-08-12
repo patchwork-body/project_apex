@@ -417,6 +417,45 @@ pub fn calculator() {
         });
     });
 
+    let calculate_percentage = action!(expression => |_event| {
+        expression.update(|v| {
+            let mut v = v.clone();
+
+            // Parse the current right value
+            let current_value = v.right.parse::<f64>().unwrap_or(0.0);
+            let current_value = if v.is_negative { -current_value } else { current_value };
+
+            let result = if let Some(left_expr) = &v.left {
+                // If there's a left expression with an operator
+                if let Some(operator) = &left_expr.operator {
+                    match operator {
+                        Operator::Multiply | Operator::Divide => {
+                            // For * and /, calculate percentage of the left operand
+                            let left_value = left_expr.right.parse::<f64>().unwrap_or(0.0);
+                            let left_value = if left_expr.is_negative { -left_value } else { left_value };
+                            (left_value * current_value) / 100.0
+                        },
+                        _ => {
+                            // For + and -, just convert current number to percentage
+                            current_value / 100.0
+                        }
+                    }
+                } else {
+                    // No operator, just convert to percentage
+                    current_value / 100.0
+                }
+            } else {
+                // No left expression, just convert current number to percentage
+                current_value / 100.0
+            };
+
+            // Update the right value with the result
+            v.right = result.to_string();
+            v.is_negative = false; // Reset negative flag since result is calculated
+            v
+        });
+    });
+
     let display_expression = derive!(expression, { expression.get().get_display_value() });
 
     let execute_expression = action!(expression, prev_expression => |_event| {
@@ -445,7 +484,7 @@ pub fn calculator() {
             <div class="buttons">
                 <Button secondary={true} symbol={clear_symbol.clone()} onmousedown={set_timeout_to_clear_value.clone()} onmouseup={remove_last_symbol.clone()} />
                 <Button secondary={true} symbol="±" onclick={negative_value.clone()} />
-                <Button secondary={true} symbol="%" onclick={set_operator.clone()} />
+                <Button secondary={true} symbol="%" onclick={calculate_percentage.clone()} />
                 <Button primary={true} symbol="÷" onclick={set_operator.clone()} />
                 <Button symbol="7" onclick={add_symbol.clone()} />
                 <Button symbol="8" onclick={add_symbol.clone()} />
@@ -810,5 +849,143 @@ mod tests {
         };
 
         assert_eq!(add.execute(), 14.0); // 2 + (3 * 4) = 14
+    }
+
+    #[test]
+    fn test_percentage_simple() {
+        // Test simple percentage conversion: 50% = 0.5
+        let mut expr = Expression {
+            right: "50".to_owned(),
+            ..Default::default()
+        };
+
+        // Simulate percentage calculation
+        let current_value = expr.right.parse::<f64>().unwrap();
+        let result = current_value / 100.0;
+        expr.right = result.to_string();
+
+        assert_eq!(expr.execute(), 0.5);
+    }
+
+    #[test]
+    fn test_percentage_with_multiplication() {
+        // Test percentage with multiplication: 60 * 20% = 12
+        // After percentage, the expression becomes: 60 * 12
+        let left = Expression {
+            right: "60".to_owned(),
+            operator: Some(Operator::Multiply),
+            ..Default::default()
+        };
+
+        let mut expr = Expression {
+            left: Some(Box::new(left)),
+            right: "20".to_owned(),
+            ..Default::default()
+        };
+
+        // Simulate percentage calculation for multiplication
+        let current_value = expr.right.parse::<f64>().unwrap();
+        let left_value = expr.left.as_ref().unwrap().right.parse::<f64>().unwrap();
+        let result = (left_value * current_value) / 100.0;
+        expr.right = result.to_string();
+
+        // Now execute the expression: 60 * 12 = 720
+        assert_eq!(expr.execute(), 720.0);
+    }
+
+    #[test]
+    fn test_percentage_with_division() {
+        // Test percentage with division: 100 ÷ 25% becomes 100 ÷ 25 = 4
+        let left = Expression {
+            right: "100".to_owned(),
+            operator: Some(Operator::Divide),
+            ..Default::default()
+        };
+
+        let mut expr = Expression {
+            left: Some(Box::new(left)),
+            right: "25".to_owned(),
+            ..Default::default()
+        };
+
+        // Simulate percentage calculation for division
+        let current_value = expr.right.parse::<f64>().unwrap();
+        let left_value = expr.left.as_ref().unwrap().right.parse::<f64>().unwrap();
+        let result = (left_value * current_value) / 100.0;
+        expr.right = result.to_string();
+
+        // Now execute the expression: 100 ÷ 25 = 4
+        assert_eq!(expr.execute(), 4.0);
+    }
+
+    #[test]
+    fn test_percentage_with_addition() {
+        // Test percentage with addition: 100 + 15% becomes 100 + 0.15 = 100.15
+        let left = Expression {
+            right: "100".to_owned(),
+            operator: Some(Operator::Add),
+            ..Default::default()
+        };
+
+        let mut expr = Expression {
+            left: Some(Box::new(left)),
+            right: "15".to_owned(),
+            ..Default::default()
+        };
+
+        // Simulate percentage calculation for addition (just divide by 100)
+        let current_value = expr.right.parse::<f64>().unwrap();
+        let result = current_value / 100.0;
+        expr.right = result.to_string();
+
+        // Now execute the expression: 100 + 0.15 = 100.15
+        assert_eq!(expr.execute(), 100.15);
+    }
+
+    #[test]
+    fn test_percentage_with_subtraction() {
+        // Test percentage with subtraction: 200 - 10% becomes 200 - 0.1 = 199.9
+        let left = Expression {
+            right: "200".to_owned(),
+            operator: Some(Operator::Subtract),
+            ..Default::default()
+        };
+
+        let mut expr = Expression {
+            left: Some(Box::new(left)),
+            right: "10".to_owned(),
+            ..Default::default()
+        };
+
+        // Simulate percentage calculation for subtraction (just divide by 100)
+        let current_value = expr.right.parse::<f64>().unwrap();
+        let result = current_value / 100.0;
+        expr.right = result.to_string();
+
+        // Now execute the expression: 200 - 0.1 = 199.9
+        assert_eq!(expr.execute(), 199.9);
+    }
+
+    #[test]
+    fn test_percentage_negative_value() {
+        // Test percentage with negative value: -25% = -0.25
+        let mut expr = Expression {
+            right: "25".to_owned(),
+            is_negative: true,
+            ..Default::default()
+        };
+
+        // Simulate percentage calculation with negative
+        let current_value = expr.right.parse::<f64>().unwrap();
+        let current_value = if expr.is_negative {
+            -current_value
+        } else {
+            current_value
+        };
+        let result = current_value / 100.0;
+        expr.right = result.to_string();
+        expr.is_negative = false;
+
+        assert_eq!(expr.execute(), -0.25);
     }
 }
