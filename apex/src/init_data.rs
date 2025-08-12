@@ -1,4 +1,3 @@
-use wasm_bindgen::JsCast;
 /// Client-side utilities for accessing INIT_DATA passed from the server
 use wasm_bindgen::prelude::*;
 

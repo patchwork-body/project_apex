@@ -1,14 +1,12 @@
 #![allow(missing_docs)]
 
-use apex::wasm_bindgen::JsCast;
+use apex::{wasm_bindgen::JsCast, web_sys};
 use std::{
     fmt::{self, Display},
     rc::Rc,
 };
-use wasm_bindgen::prelude::Closure;
 
 use apex::prelude::*;
-use std::collections::HashMap;
 
 #[component]
 pub fn button(
@@ -312,6 +310,8 @@ pub fn root_page(params: HashMap<String, String>) -> LoaderData {
 
 #[component]
 pub fn calculator() {
+    use apex::wasm_bindgen::prelude::Closure;
+
     let expression = signal!(Expression::default());
     let prev_expression = signal!(None::<Expression>);
 
@@ -493,8 +493,7 @@ pub fn calculator_page() {
                 <script type="module" src="/static/init.js"></script>
             </head>
             <body>
-                // <span class="loader-data">{loader_name.get()}</span>
-                <span class="loader-data">{loader_age.get()}</span>
+                <span class="loader-data">{loader_name.get()}: {loader_age.get()}</span>
                 <Calculator />
             </body>
         </html>
