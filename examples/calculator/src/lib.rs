@@ -1,6 +1,8 @@
 #![allow(missing_docs)]
-
-use apex::{wasm_bindgen::JsCast, web_sys};
+use apex::{
+    wasm_bindgen::{JsCast, prelude::Closure},
+    web_sys,
+};
 use std::{
     fmt::{self, Display},
     rc::Rc,
@@ -309,8 +311,6 @@ pub fn root_page(params: HashMap<String, String>) -> LoaderData {
 
 #[component]
 pub fn calculator() {
-    use apex::wasm_bindgen::prelude::Closure;
-
     let expression = signal!(Expression::default());
     let prev_expression = signal!(None::<Expression>);
 
