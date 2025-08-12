@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use syn::{
-    Ident, Meta, Result,
+    Ident, LitStr, Meta, Result,
     parse::{Parse, ParseStream},
 };
 
@@ -8,6 +8,7 @@ use syn::{
 #[derive(Debug, Default)]
 pub(crate) struct RouteArgs {
     pub component: Option<Ident>,
+    pub path: Option<LitStr>,
 }
 
 impl Parse for RouteArgs {
@@ -29,6 +30,14 @@ impl Parse for RouteArgs {
                             if let Some(ident) = expr_path.path.get_ident() {
                                 route_args.component = Some(ident.clone());
                             }
+                        }
+                    } else if name_value.path.is_ident("path") {
+                        if let syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Str(s),
+                            ..
+                        }) = &name_value.value
+                        {
+                            route_args.path = Some(s.clone());
                         }
                     }
                 }

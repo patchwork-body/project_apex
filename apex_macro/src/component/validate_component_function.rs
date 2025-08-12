@@ -6,7 +6,7 @@ pub(crate) fn validate_component_function(input: &ItemFn) {
     for arg in &input.sig.inputs {
         match arg {
             FnArg::Typed(pat_type) => {
-                // Check if parameter has #[prop] or #[slot] attribute
+                // Check if parameter has #[prop], #[slot], or #[server_context] attribute
                 let has_prop_attr = pat_type.attrs.iter().any(|attr| {
                     attr.path()
                         .get_ident()
@@ -21,7 +21,25 @@ pub(crate) fn validate_component_function(input: &ItemFn) {
                         .unwrap_or(false)
                 });
 
-                if !has_prop_attr && !has_slot_attr {
+                let has_server_context_attr = pat_type.attrs.iter().any(|attr| {
+                    attr.path()
+                        .get_ident()
+                        .map(|ident| ident == "server_context")
+                        .unwrap_or(false)
+                });
+
+                let has_route_data_attr = pat_type.attrs.iter().any(|attr| {
+                    attr.path()
+                        .get_ident()
+                        .map(|ident| ident == "route_data")
+                        .unwrap_or(false)
+                });
+
+                if !has_prop_attr
+                    && !has_slot_attr
+                    && !has_server_context_attr
+                    && !has_route_data_attr
+                {
                     // Extract parameter name for better error message
                     let param_name = match &*pat_type.pat {
                         Pat::Ident(pat_ident) => pat_ident.ident.to_string(),
@@ -29,7 +47,7 @@ pub(crate) fn validate_component_function(input: &ItemFn) {
                     };
 
                     panic!(
-                        "Component parameter '{param_name}' must have #[prop] or #[slot] attribute"
+                        "Component parameter '{param_name}' must have #[prop], #[slot], #[route_data], or #[server_context] attribute"
                     );
                 }
             }

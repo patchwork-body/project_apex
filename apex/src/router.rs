@@ -3,12 +3,21 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-type Handler = Box<
+/// Public handler type used by routes
+pub type ApexHandler = Box<
     dyn Fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
 >;
 
+/// Trait implemented by macro-generated route structs
+pub trait ApexRoute {
+    /// Static path for this route (e.g., "/users/:id")
+    fn path(&self) -> &'static str;
+    /// Handler function invoked by the router
+    fn handler(&self) -> ApexHandler;
+}
+
 pub struct ApexRouter {
-    router: Router<Handler>,
+    router: Router<ApexHandler>,
 }
 
 impl ApexRouter {
@@ -23,12 +32,22 @@ impl ApexRouter {
         F: Fn(HashMap<String, String>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = String> + Send + 'static,
     {
-        let boxed_handler: Handler = Box::new(move |params| Box::pin(handler(params)));
+        let boxed_handler: ApexHandler = Box::new(move |params| Box::pin(handler(params)));
 
         if let Err(e) = self.router.insert(path, boxed_handler) {
             panic!("Failed to insert route '{path}': {e}");
         }
 
+        self
+    }
+
+    /// Mount a macro-generated route struct implementing `ApexRoute`
+    pub fn mount_route<R: ApexRoute>(mut self, route: R) -> Self {
+        let path = route.path();
+        let handler = route.handler();
+        if let Err(e) = self.router.insert(path, handler) {
+            panic!("Failed to insert route '{path}': {e}");
+        }
         self
     }
 

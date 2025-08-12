@@ -8,6 +8,7 @@ use std::{
 use wasm_bindgen::prelude::Closure;
 
 use apex::prelude::*;
+use std::collections::HashMap;
 
 #[component]
 pub fn button(
@@ -283,6 +284,32 @@ impl Expression {
     }
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LoaderData {
+    pub name: String,
+    pub age: u8,
+}
+
+// Move the route definition to lib.rs so the helper function is accessible
+#[route(component = CalculatorPage, path = "/user/{name}/{age}")]
+pub fn root_page(params: HashMap<String, String>) -> LoaderData {
+    apex::apex_utils::reset_counters();
+    println!("Root page accessed with params: {params:?}");
+
+    LoaderData {
+        name: params
+            .get("name")
+            .unwrap_or(&"Anonymous".to_owned())
+            .to_owned(),
+
+        age: params
+            .get("age")
+            .unwrap_or(&"0".to_owned())
+            .parse::<u8>()
+            .unwrap_or(0),
+    }
+}
+
 #[component]
 pub fn calculator() {
     let expression = signal!(Expression::default());
@@ -442,6 +469,20 @@ pub fn calculator() {
 
 #[component]
 pub fn calculator_page() {
+    let loader_data = get_root_page_loader_data();
+
+    let loader_name = derive!(loader_data, {
+        loader_data
+            .get()
+            .map_or("No data".to_owned(), |data| data.name)
+    });
+
+    let loader_age = derive!(loader_data, {
+        loader_data
+            .get()
+            .map_or("No data".to_owned(), |data| data.age.to_string())
+    });
+
     tmpl! {
         <html lang="en">
             <head>
@@ -452,6 +493,8 @@ pub fn calculator_page() {
                 <script type="module" src="/static/init.js"></script>
             </head>
             <body>
+                // <span class="loader-data">{loader_name.get()}</span>
+                <span class="loader-data">{loader_age.get()}</span>
                 <Calculator />
             </body>
         </html>

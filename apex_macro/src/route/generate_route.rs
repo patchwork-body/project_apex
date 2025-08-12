@@ -3,11 +3,12 @@ use quote::quote;
 use syn::{FnArg, ItemFn, Pat};
 
 use super::parse_route_args::RouteArgs;
+use crate::component::to_pascal_case::to_pascal_case;
 
 /// Generate a route handler function that can be used with ApexRouter
 ///
 /// The macro transforms:
-/// ```rust
+/// ```rust,ignore
 /// #[route(component = HomeComponent)]
 /// fn home(params: HashMap<String, String>) -> String {
 ///     // custom logic here
@@ -23,6 +24,10 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     let fn_name = &input.sig.ident;
     let fn_vis = &input.vis;
     let fn_body = &input.block;
+    let route_struct_name = syn::Ident::new(
+        &format!("{}Route", to_pascal_case(&fn_name.to_string())),
+        fn_name.span(),
+    );
 
     // Validate function signature - should accept HashMap<String, String> params
     validate_route_function(&input);
@@ -31,24 +36,173 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     let params_name = extract_params_name(&input);
 
     if let Some(component_name) = &args.component {
-        // Generate route handler that uses the specified component
-        quote! {
-            #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
-                // Execute original function logic
-                let _result = {
-                    #fn_body
+        // Check if the route function returns something other than String
+        let has_return_value = match &input.sig.output {
+            syn::ReturnType::Type(_, ty) => {
+                let type_str = quote!(#ty).to_string();
+                !type_str.contains("String") && type_str != "()"
+            }
+            syn::ReturnType::Default => false,
+        };
+
+        if has_return_value {
+            // Generate route handler that sets server context and injects INIT_DATA
+            // Also generate client-side helper function
+            {
+                let path = args
+                    .path
+                    .map(|p| p.value())
+                    .unwrap_or_else(|| "/".to_owned());
+
+                // Generate client-side helper function name
+                let client_helper_name =
+                    syn::Ident::new(&format!("get_{fn_name}_loader_data"), fn_name.span());
+
+                // Extract return type for the client helper
+                let return_type = match &input.sig.output {
+                    syn::ReturnType::Type(_, ty) => ty,
+                    syn::ReturnType::Default => {
+                        panic!("Route with return value must have explicit return type")
+                    }
                 };
 
-                // Create and render the component
-                let component = #component_name::builder().build();
-                component.render()
+                quote! {
+                    // legacy handler fn kept for backward compatibility
+                    #[cfg(not(target_arch = "wasm32"))]
+                    #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
+                        let route_data = { #fn_body };
+                        let component = #component_name::builder().build();
+                        let html = component.render_with_data(route_data.clone());
+
+                        // Inject INIT_DATA script if the HTML contains </head>
+                        if let Ok(serialized_data) = serde_json::to_string(&route_data) {
+                            let init_script = format!(
+                                r#"<script>window.INIT_DATA = {};</script>"#,
+                                serialized_data
+                            );
+
+                            if let Some(head_end) = html.find("</head>") {
+                                let mut result = html.clone();
+                                result.insert_str(head_end, &init_script);
+                                result
+                            } else {
+                                html
+                            }
+                        } else {
+                            html
+                        }
+                    }
+
+                    // struct-based route for ApexRouter::mount_route
+                    #[cfg(not(target_arch = "wasm32"))]
+                    pub struct #route_struct_name;
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    impl apex::router::ApexRoute for #route_struct_name {
+                        fn path(&self) -> &'static str { #path }
+                        fn handler(&self) -> apex::router::ApexHandler {
+                            Box::new(|#params_name: std::collections::HashMap<String, String>| {
+                                Box::pin(async move {
+                                    let route_data = { #fn_body };
+                                    let component = #component_name::builder().build();
+                                    let html = component.render_with_data(route_data.clone());
+
+                                    // Inject INIT_DATA script if the HTML contains </head>
+                                    if let Ok(serialized_data) = serde_json::to_string(&route_data) {
+                                        let init_script = format!(
+                                            r#"<script>window.INIT_DATA = {};</script>"#,
+                                            serialized_data
+                                        );
+
+                                        if let Some(head_end) = html.find("</head>") {
+                                            let mut result = html.clone();
+                                            result.insert_str(head_end, &init_script);
+                                            result
+                                        } else {
+                                            html
+                                        }
+                                    } else {
+                                        html
+                                    }
+                                })
+                            })
+                        }
+                    }
+
+                    // Helper function for accessing loader data (works on both client and server)
+                    pub fn #client_helper_name() -> Signal<Option<#return_type>> {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            // On client side, get data from INIT_DATA
+                            signal!(apex::init_data::get_typed_init_data::<#return_type>())
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            // On server side, get the data from server context
+                            signal!(apex::server_context::get_server_context::<#return_type>())
+                        }
+                    }
+                }
+            }
+        } else {
+            // Generate route handler without passing data to component
+            {
+                let path = args
+                    .path
+                    .map(|p| p.value())
+                    .unwrap_or_else(|| "/".to_owned());
+                quote! {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
+                        let _result = { #fn_body };
+                        let component = #component_name::builder().build();
+                        component.render()
+                    }
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    pub struct #route_struct_name;
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    impl apex::router::ApexRoute for #route_struct_name {
+                        fn path(&self) -> &'static str { #path }
+                        fn handler(&self) -> apex::router::ApexHandler {
+                            Box::new(|#params_name: std::collections::HashMap<String, String>| {
+                                Box::pin(async move {
+                                    let _result = { #fn_body };
+                                    let component = #component_name::builder().build();
+                                    component.render()
+                                })
+                            })
+                        }
+                    }
+                }
             }
         }
     } else {
         // Generate route handler without component (just execute original logic)
-        quote! {
-            #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
-                #fn_body
+        {
+            let path = args
+                .path
+                .map(|p| p.value())
+                .unwrap_or_else(|| "/".to_owned());
+            quote! {
+                #[cfg(not(target_arch = "wasm32"))]
+                #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
+                    #fn_body
+                }
+
+                #[cfg(not(target_arch = "wasm32"))]
+                pub struct #route_struct_name;
+
+                #[cfg(not(target_arch = "wasm32"))]
+                impl apex::router::ApexRoute for #route_struct_name {
+                    fn path(&self) -> &'static str { #path }
+                    fn handler(&self) -> apex::router::ApexHandler {
+                        Box::new(|#params_name: std::collections::HashMap<String, String>| {
+                            Box::pin(async move { { #fn_body } })
+                        })
+                    }
+                }
             }
         }
     }
