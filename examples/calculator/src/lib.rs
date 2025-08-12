@@ -288,7 +288,6 @@ pub struct LoaderData {
     pub age: u8,
 }
 
-// Move the route definition to lib.rs so the helper function is accessible
 #[route(component = CalculatorPage, path = "/user/{name}/{age}")]
 pub fn root_page(params: HashMap<String, String>) -> LoaderData {
     apex::apex_utils::reset_counters();
