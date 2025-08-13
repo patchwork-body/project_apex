@@ -50,4 +50,5 @@ pub(crate) enum TmplAst {
         slot_name: String,
     },
     ConditionalDirective(Vec<IfBlock>),
+    Outlet,
 }

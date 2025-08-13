@@ -29,6 +29,65 @@ fn generate_children_method(args: &RouteArgs) -> proc_macro2::TokenStream {
     }
 }
 
+/// Generate outlet matching helper functions for server and client
+fn generate_outlet_helpers(
+    fn_name: &syn::Ident,
+    route_path: &str,
+    args: &RouteArgs,
+) -> proc_macro2::TokenStream {
+    let outlet_helper_name = syn::Ident::new(&format!("{fn_name}_outlet_matcher"), fn_name.span());
+
+    if args.children.is_empty() {
+        // No children, no outlet matching needed
+        quote! {}
+    } else {
+        let children_route_names = &args.children;
+
+        quote! {
+            /// Helper function to match child routes for outlet rendering
+            /// Returns the route struct that should render in the outlet for the given path
+            pub fn #outlet_helper_name(request_path: &str) -> Option<Box<dyn apex::router::ApexRoute>> {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    // Server-side outlet matching
+                    apex::router::server_outlet_match(#route_path, request_path, vec![
+                        #(Box::new(#children_route_names) as Box<dyn apex::router::ApexRoute>),*
+                    ])
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    // Client-side outlet matching
+                    apex::router::client_outlet_match(#route_path, request_path, vec![
+                        #(Box::new(#children_route_names) as Box<dyn apex::router::ApexRoute>),*
+                    ])
+                }
+            }
+
+            /// Get the child route that should render for the current request
+            /// This is used in templates with {#outlet} directive
+            pub fn get_outlet_content(request_path: &str) -> Option<String> {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    // Server-side: render the matched child route
+                    if let Some(child_route) = #outlet_helper_name(request_path) {
+                        let handler = child_route.handler();
+                        // Extract params from the path
+                        let params = apex::router::extract_route_params(child_route.path(), request_path);
+                        Some(tokio::runtime::Handle::current().block_on(handler(params)))
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    // Client-side: get content from client-side routing
+                    apex::router::get_client_outlet_content(#route_path, request_path)
+                }
+            }
+        }
+    }
+}
+
 /// Generate a route handler function that can be used with ApexRouter
 ///
 /// The macro transforms:
@@ -78,12 +137,16 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             {
                 let path = args
                     .path
+                    .as_ref()
                     .map(|p| p.value())
                     .unwrap_or_else(|| "/".to_owned());
 
                 // Generate client-side helper function name
                 let client_helper_name =
                     syn::Ident::new(&format!("get_{fn_name}_loader_data"), fn_name.span());
+
+                // Generate outlet helpers
+                let outlet_helpers = generate_outlet_helpers(fn_name, &path, &args);
 
                 // Extract return type for the client helper
                 let return_type = match &input.sig.output {
@@ -171,6 +234,9 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                             signal!(apex::server_context::get_server_context::<#return_type>())
                         }
                     }
+
+                    // Outlet helpers for hierarchical routing
+                    #outlet_helpers
                 }
             }
         } else {
@@ -178,8 +244,13 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             {
                 let path = args
                     .path
+                    .as_ref()
                     .map(|p| p.value())
                     .unwrap_or_else(|| "/".to_owned());
+
+                // Generate outlet helpers
+                let outlet_helpers = generate_outlet_helpers(fn_name, &path, &args);
+
                 quote! {
                     #[cfg(not(target_arch = "wasm32"))]
                     #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
@@ -188,12 +259,12 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                         component.render()
                     }
 
-                    #[cfg(not(target_arch = "wasm32"))]
                     pub struct #route_struct_name;
 
-                    #[cfg(not(target_arch = "wasm32"))]
                     impl apex::router::ApexRoute for #route_struct_name {
                         fn path(&self) -> &'static str { #path }
+
+                        #[cfg(not(target_arch = "wasm32"))]
                         fn handler(&self) -> apex::router::ApexHandler {
                             Box::new(|#params_name: std::collections::HashMap<String, String>| {
                                 Box::pin(async move {
@@ -204,8 +275,20 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                             })
                         }
 
+                        #[cfg(target_arch = "wasm32")]
+                        fn handler(&self) -> apex::router::ApexHandler {
+                            Box::new(|#params_name: std::collections::HashMap<String, String>| {
+                                Box::pin(async move {
+                                    "".to_string()
+                                })
+                            })
+                        }
+
                         #children_method
                     }
+
+                    // Outlet helpers for hierarchical routing
+                    #outlet_helpers
                 }
             }
         }
@@ -214,8 +297,13 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         {
             let path = args
                 .path
+                .as_ref()
                 .map(|p| p.value())
                 .unwrap_or_else(|| "/".to_owned());
+
+            // Generate outlet helpers
+            let outlet_helpers = generate_outlet_helpers(fn_name, &path, &args);
+
             quote! {
                 #[cfg(not(target_arch = "wasm32"))]
                 #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
@@ -236,6 +324,9 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
 
                     #children_method
                 }
+
+                // Outlet helpers for hierarchical routing
+                #outlet_helpers
             }
         }
     }

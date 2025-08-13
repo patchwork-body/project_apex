@@ -3,11 +3,12 @@ use std::str::Chars;
 pub(crate) fn parse_directive_name(chars: &mut std::iter::Peekable<Chars<'_>>) -> String {
     let mut name = String::new();
 
-    for c in chars.by_ref() {
-        if c == ' ' {
+    while let Some(&c) = chars.peek() {
+        if c == ' ' || c == '}' {
             break;
         }
 
+        chars.next();
         name.push(c);
     }
 

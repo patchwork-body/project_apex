@@ -11,5 +11,5 @@ pub(crate) fn parse_directive_params(chars: &mut std::iter::Peekable<Chars<'_>>)
         params.push(c);
     }
 
-    params
+    params.trim().to_string()
 }

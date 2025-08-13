@@ -415,4 +415,104 @@ mod tests {
             }]
         );
     }
+
+    #[test]
+    fn outlet_directive() {
+        let input = "<div>{#outlet}</div>";
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::Outlet],
+            }]
+        );
+    }
+
+    #[test]
+    fn outlet_directive_with_whitespace() {
+        let input = "<div> {#outlet} </div>";
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: HashMap::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::Outlet],
+            }]
+        );
+    }
+
+    #[test]
+    fn layout_with_outlet() {
+        let input = r#"
+            <html>
+                <head>
+                    <title>My App</title>
+                </head>
+                <body>
+                    <nav>Navigation</nav>
+                    <main>
+                        {#outlet}
+                    </main>
+                </body>
+            </html>
+        "#;
+
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "html".to_owned(),
+                attributes: HashMap::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![
+                    TmplAst::Element {
+                        tag: "head".to_owned(),
+                        attributes: HashMap::new(),
+                        is_component: false,
+                        self_closing: false,
+                        children: vec![TmplAst::Element {
+                            tag: "title".to_owned(),
+                            attributes: HashMap::new(),
+                            is_component: false,
+                            self_closing: false,
+                            children: vec![TmplAst::Text("My App".to_owned())],
+                        }],
+                    },
+                    TmplAst::Element {
+                        tag: "body".to_owned(),
+                        attributes: HashMap::new(),
+                        is_component: false,
+                        self_closing: false,
+                        children: vec![
+                            TmplAst::Element {
+                                tag: "nav".to_owned(),
+                                attributes: HashMap::new(),
+                                is_component: false,
+                                self_closing: false,
+                                children: vec![TmplAst::Text("Navigation".to_owned())],
+                            },
+                            TmplAst::Element {
+                                tag: "main".to_owned(),
+                                attributes: HashMap::new(),
+                                is_component: false,
+                                self_closing: false,
+                                children: vec![TmplAst::Outlet],
+                            },
+                        ],
+                    },
+                ],
+            }]
+        );
+    }
 }

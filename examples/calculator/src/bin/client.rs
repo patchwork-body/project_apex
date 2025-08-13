@@ -8,6 +8,7 @@ fn main() {
 
         apex::Apex::hydrate(tmpl! {
            <Layout />
+           <Calculator />
         });
     }
 }

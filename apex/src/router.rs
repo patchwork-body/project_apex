@@ -24,6 +24,19 @@ pub struct ApexRouter {
     router: Router<ApexHandler>,
     // Store route metadata for outlet handling
     routes: Vec<(String, Vec<Box<dyn ApexRoute>>)>,
+    // Store hierarchical route structure for path matching
+    route_tree: RouteTree,
+}
+
+struct RouteNode {
+    path: String,
+    handler: Option<ApexHandler>,
+    children: HashMap<String, RouteNode>,
+}
+
+#[derive(Default)]
+struct RouteTree {
+    root: HashMap<String, RouteNode>,
 }
 
 impl ApexRouter {
@@ -31,6 +44,7 @@ impl ApexRouter {
         Self {
             router: Router::new(),
             routes: Vec::new(),
+            route_tree: RouteTree::default(),
         }
     }
 
@@ -44,6 +58,9 @@ impl ApexRouter {
         if let Err(e) = self.router.insert(path, boxed_handler) {
             panic!("Failed to insert route '{path}': {e}");
         }
+
+        // Store route metadata for hierarchical matching logic
+        self.routes.push((path.to_string(), Vec::new()));
 
         self
     }
@@ -87,80 +104,21 @@ impl ApexRouter {
         }
     }
 
+    /// Main route handling method with hierarchical matching
+    ///
+    /// For incoming request /pathA/pathB:
+    /// 1. If root "/" has actual children defined, matches root first and looks for children
+    /// 2. Otherwise, tries exact matches from most specific to least specific
+    /// 3. Falls back to root as last resort if it exists
     pub async fn handle_request(&self, path: &str) -> Option<String> {
-        match self.router.at(path) {
-            Ok(Match {
-                value: handler,
-                params,
-            }) => {
-                let params_map: HashMap<String, String> = params
-                    .iter()
-                    .map(|(k, v)| (k.to_string(), v.to_string()))
-                    .collect();
-
-                Some(handler(params_map).await)
-            }
-            Err(_) => None,
-        }
-    }
-
-    /// Handle request with outlet support - renders parent route with child content injected
-    pub async fn handle_request_with_outlets(&self, path: &str) -> Option<String> {
-        // First try to match the exact path
-        if let Some(result) = self.handle_request(path).await {
-            return Some(result);
-        }
-
-        // If no exact match, try to find parent routes that might have outlets
-        let path_segments: Vec<&str> = path
+        let segments: Vec<&str> = path
             .trim_start_matches('/')
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
 
-        // Try different parent/child combinations
-        for i in (1..path_segments.len()).rev() {
-            let parent_path = format!("/{}", path_segments[..i].join("/"));
-            let child_path = format!("/{}", path_segments[i..].join("/"));
-
-            if let Some(parent_html) = self.handle_request(&parent_path).await {
-                // Check if parent has outlet
-                if parent_html.contains("<!-- @outlet -->") {
-                    // We need to find and render the child route manually since it's not mounted as a direct route
-                    // For now, we need to access the route's children and find the matching one
-                    if let Some(child_html) =
-                        self.render_child_route(&parent_path, &child_path).await
-                    {
-                        // Replace outlet with child content
-                        let result = parent_html.replace("<!-- @outlet -->", &child_html);
-                        return Some(result);
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Render a child route by finding it in the parent route's children
-    async fn render_child_route(&self, parent_path: &str, child_path: &str) -> Option<String> {
-        // Find the parent route in our stored metadata
-        for (route_path, children) in &self.routes {
-            // Check if this route matches the parent path pattern
-            if self.path_matches(route_path, parent_path) {
-                // Look for a child route that matches the child path
-                for child in children {
-                    if child.path() == child_path {
-                        // Found matching child route, render it
-                        let params = self.extract_params(route_path, parent_path);
-                        let handler = child.handler();
-                        return Some(handler(params).await);
-                    }
-                }
-            }
-        }
-
-        None
+        // Try to find a matching route hierarchy
+        self.find_hierarchical_match(&segments).await
     }
 
     /// Check if a route pattern matches a path (handles parameters like /{name}/{age})
@@ -199,6 +157,318 @@ impl ApexRouter {
 
         params
     }
+
+    /// Find hierarchical match starting from root and traversing down
+    async fn find_hierarchical_match(&self, segments: &[&str]) -> Option<String> {
+        // Check if root route exists and has actual children defined
+        let root_has_children = self
+            .routes
+            .iter()
+            .any(|(path, children)| path == "/" && !children.is_empty());
+
+        // If root has actual children routes, prioritize hierarchical matching
+        if root_has_children {
+            if let Some(result) = self.try_match_from_path("/", segments).await {
+                return Some(result);
+            }
+        }
+
+        // Handle empty segments (root path) first
+        if segments.is_empty() {
+            if let Some(result) = self.try_match_from_path("/", segments).await {
+                return Some(result);
+            }
+        }
+
+        // Try exact matches from most specific to least specific
+        for i in (1..=segments.len()).rev() {
+            let parent_path = format!("/{}", segments[..i].join("/"));
+            if let Some(result) = self.try_match_from_path(&parent_path, &segments[i..]).await {
+                return Some(result);
+            }
+        }
+
+        // Fall back to root in hierarchical scenarios:
+        // 1. If we have a root with children defined (mount_route scenario)
+        // 2. If we have multiple levels of nested routes (indicating hierarchical design)
+        if !segments.is_empty() {
+            let has_nested_routes = self.routes.iter().any(|(path, _)| {
+                path != "/" && path.matches('/').count() > 1 // More than one slash means nested
+            });
+            let is_hierarchical_path = segments.len() > 1;
+
+            if root_has_children || is_hierarchical_path || has_nested_routes {
+                if let Some(result) = self.try_match_from_path("/", segments).await {
+                    return Some(result);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Try to match a path and its remaining segments hierarchically
+    async fn try_match_from_path(
+        &self,
+        base_path: &str,
+        remaining_segments: &[&str],
+    ) -> Option<String> {
+        // First check if the base path itself matches
+        match self.router.at(base_path) {
+            Ok(Match {
+                value: handler,
+                params,
+            }) => {
+                let params_map: HashMap<String, String> = params
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect();
+
+                let base_result = handler(params_map).await;
+
+                // If there are no remaining segments, return the base result
+                if remaining_segments.is_empty() {
+                    return Some(base_result);
+                }
+
+                // If there are remaining segments, try to match child routes hierarchically
+                // This handles the case where we matched root "/" and need to find children pathA/pathB
+                if base_result.contains("<!-- @outlet -->") {
+                    // Try to render child routes for the remaining segments
+                    if let Some(child_result) = self
+                        .render_child_route_hierarchical(base_path, remaining_segments)
+                        .await
+                    {
+                        let result = base_result.replace("<!-- @outlet -->", &child_result);
+                        return Some(result);
+                    }
+                }
+
+                // Return base result even if we couldn't match children
+                // This ensures that if we match root "/" but can't find child routes,
+                // we still return the root route content
+                Some(base_result)
+            }
+            Err(_) => None,
+        }
+    }
+
+    /// Render child routes hierarchically by trying to match segments progressively
+    fn render_child_route_hierarchical<'a>(
+        &'a self,
+        parent_path: &'a str,
+        remaining_segments: &'a [&str],
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+        Box::pin(async move {
+            if remaining_segments.is_empty() {
+                return None;
+            }
+
+            // Try to match the first segment as a direct child
+            let first_segment_path = format!("/{}", remaining_segments[0]);
+
+            // Find the parent route in our stored metadata
+            for (route_path, children) in &self.routes {
+                // Check if this route matches the parent path pattern
+                if self.path_matches(route_path, parent_path) {
+                    // Look for a child route that matches the first segment
+                    for child in children {
+                        if child.path() == first_segment_path {
+                            let params = self.extract_params(route_path, parent_path);
+                            let handler = child.handler();
+
+                            // If there are more segments after this one
+                            if remaining_segments.len() > 1 {
+                                let child_result = handler(params).await;
+
+                                // Check if this child has outlets for further nesting
+                                if child_result.contains("<!-- @outlet -->") {
+                                    // Try to render the remaining segments as grandchildren
+                                    let grandchild_path =
+                                        self.combine_paths(parent_path, child.path());
+                                    if let Some(grandchild_result) = self
+                                        .render_child_route_hierarchical(
+                                            &grandchild_path,
+                                            &remaining_segments[1..],
+                                        )
+                                        .await
+                                    {
+                                        return Some(
+                                            child_result
+                                                .replace("<!-- @outlet -->", &grandchild_result),
+                                        );
+                                    }
+                                }
+
+                                return Some(child_result);
+                            } else {
+                                // This is the final segment, render the child
+                                return Some(handler(params).await);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If no direct child match found, try to find a route that matches multiple segments
+            // This handles cases where we might have nested routes like /pathA/pathB
+            for i in 1..=remaining_segments.len() {
+                let child_path = format!("/{}", remaining_segments[..i].join("/"));
+
+                for (route_path, children) in &self.routes {
+                    if self.path_matches(route_path, parent_path) {
+                        for child in children {
+                            if child.path() == child_path {
+                                let params = self.extract_params(route_path, parent_path);
+                                let handler = child.handler();
+
+                                // If there are remaining segments after this match
+                                if i < remaining_segments.len() {
+                                    let child_result = handler(params).await;
+
+                                    if child_result.contains("<!-- @outlet -->") {
+                                        let combined_path =
+                                            self.combine_paths(parent_path, child.path());
+                                        if let Some(grandchild_result) = self
+                                            .render_child_route_hierarchical(
+                                                &combined_path,
+                                                &remaining_segments[i..],
+                                            )
+                                            .await
+                                        {
+                                            return Some(
+                                                child_result.replace(
+                                                    "<!-- @outlet -->",
+                                                    &grandchild_result,
+                                                ),
+                                            );
+                                        }
+                                    }
+
+                                    return Some(child_result);
+                                } else {
+                                    return Some(handler(params).await);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            None
+        })
+    }
+
+    /// Extract route parameters from a route pattern and actual path
+    /// Used by outlet helpers to extract params for child routes
+    pub fn extract_route_params(
+        pattern: &str,
+        path: &str,
+    ) -> std::collections::HashMap<String, String> {
+        let mut params = std::collections::HashMap::new();
+        let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
+        let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+
+        for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
+            if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
+                let param_name = &pattern_seg[1..pattern_seg.len() - 1];
+                params.insert(param_name.to_string(), path_seg.to_string());
+            }
+        }
+
+        params
+    }
+}
+
+/// Extract route parameters from a route pattern and actual path
+/// Standalone function for use by generated outlet helpers
+pub fn extract_route_params(
+    pattern: &str,
+    path: &str,
+) -> std::collections::HashMap<String, String> {
+    let mut params = std::collections::HashMap::new();
+    let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
+    let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+
+    for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
+        if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
+            let param_name = &pattern_seg[1..pattern_seg.len() - 1];
+            params.insert(param_name.to_string(), path_seg.to_string());
+        }
+    }
+
+    params
+}
+
+/// Server-side outlet matching helper
+/// Finds which child route should render for the given request path
+pub fn server_outlet_match(
+    parent_path: &str,
+    request_path: &str,
+    children: Vec<Box<dyn ApexRoute>>,
+) -> Option<Box<dyn ApexRoute>> {
+    // Remove parent path from request path to get the child path
+    let child_path = if parent_path == "/" {
+        request_path.to_string()
+    } else if request_path.starts_with(parent_path) {
+        request_path[parent_path.len()..].to_string()
+    } else {
+        return None;
+    };
+
+    // Find matching child route
+    for child in children {
+        if path_matches_pattern(child.path(), &child_path) {
+            return Some(child);
+        }
+    }
+
+    None
+}
+
+/// Client-side outlet matching helper
+/// On client side, this would integrate with client-side routing
+pub fn client_outlet_match(
+    parent_path: &str,
+    request_path: &str,
+    children: Vec<Box<dyn ApexRoute>>,
+) -> Option<Box<dyn ApexRoute>> {
+    // For now, use same logic as server-side
+    // In a full implementation, this would integrate with browser history API
+    server_outlet_match(parent_path, request_path, children)
+}
+
+/// Get client-side outlet content
+/// This would be implemented differently in a full client-side routing system
+pub fn get_client_outlet_content(parent_path: &str, request_path: &str) -> Option<String> {
+    // Placeholder for client-side outlet rendering
+    // In a real implementation, this would:
+    // 1. Check current browser URL
+    // 2. Match against client-side route definitions
+    // 3. Render the appropriate component
+    // 4. Return the rendered HTML
+    None
+}
+
+/// Helper function to check if a path matches a route pattern
+fn path_matches_pattern(pattern: &str, path: &str) -> bool {
+    let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
+    let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+
+    if pattern_segments.len() != path_segments.len() {
+        return false;
+    }
+
+    for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
+        if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
+            // Parameter segment, matches any value
+            continue;
+        } else if pattern_seg != path_seg {
+            return false;
+        }
+    }
+
+    true
 }
 
 impl Default for ApexRouter {
@@ -318,5 +588,267 @@ mod tests {
         );
         assert_eq!(router.combine_paths("", "profile"), "/profile");
         assert_eq!(router.combine_paths("/dashboard", ""), "/dashboard");
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_with_root() {
+        let router = ApexRouter::new()
+            .route("/", |_| async { "Root".to_string() })
+            .route("/pathA", |_| async { "PathA".to_string() })
+            .route("/pathA/pathB", |_| async { "PathA/PathB".to_string() });
+
+        // Test exact matches first
+        assert_eq!(router.handle_request("/").await, Some("Root".to_string()));
+        assert_eq!(
+            router.handle_request("/pathA").await,
+            Some("PathA".to_string())
+        );
+        assert_eq!(
+            router.handle_request("/pathA/pathB").await,
+            Some("PathA/PathB".to_string())
+        );
+
+        // Test hierarchical matching - should start from root and traverse down
+        // For /pathA/pathB, should match root first, then try to find pathA/pathB
+        assert_eq!(
+            router.handle_request("/pathA/pathB").await,
+            Some("PathA/PathB".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_without_root() {
+        let router = ApexRouter::new()
+            .route("/pathA", |_| async { "PathA".to_string() })
+            .route("/pathA/pathB", |_| async { "PathA/PathB".to_string() })
+            .route("/other", |_| async { "Other".to_string() });
+
+        // When no root route exists, should find best matching parent
+        assert_eq!(
+            router.handle_request("/pathA/pathB").await,
+            Some("PathA/PathB".to_string())
+        );
+
+        // Should match pathA when requesting /pathA/nonexistent
+        assert_eq!(
+            router.handle_request("/pathA/nonexistent").await,
+            Some("PathA".to_string())
+        );
+
+        // Should match other route
+        assert_eq!(
+            router.handle_request("/other").await,
+            Some("Other".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_with_outlets() {
+        let router = ApexRouter::new()
+            .route("/", |_| async { "Root with <!-- @outlet -->".to_string() })
+            .route("/dashboard", |_| async {
+                "Dashboard with <!-- @outlet -->".to_string()
+            });
+
+        // Test that outlet placeholder is preserved when no child matches
+        assert_eq!(
+            router.handle_request("/dashboard/profile").await,
+            Some("Dashboard with <!-- @outlet -->".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_fallback_behavior() {
+        let router = ApexRouter::new()
+            .route("/admin", |_| async { "Admin".to_string() })
+            .route("/admin/users", |_| async { "Admin Users".to_string() })
+            .route("/public", |_| async { "Public".to_string() });
+
+        // Should find admin route when requesting /admin/users/profile
+        assert_eq!(
+            router.handle_request("/admin/users/profile").await,
+            Some("Admin Users".to_string())
+        );
+
+        // Should find admin route when requesting /admin/settings
+        assert_eq!(
+            router.handle_request("/admin/settings").await,
+            Some("Admin".to_string())
+        );
+
+        // Should not match anything for completely unrelated path
+        assert_eq!(router.handle_request("/nonexistent/path").await, None);
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_with_parameters() {
+        let router = ApexRouter::new()
+            .route("/users/{id}", |params| async move {
+                format!(
+                    "User: {}",
+                    params.get("id").unwrap_or(&"unknown".to_string())
+                )
+            })
+            .route("/users/{id}/posts", |params| async move {
+                format!(
+                    "Posts for user: {}",
+                    params.get("id").unwrap_or(&"unknown".to_string())
+                )
+            });
+
+        // Should match parameterized route
+        assert_eq!(
+            router.handle_request("/users/123").await,
+            Some("User: 123".to_string())
+        );
+
+        // Should match nested parameterized route
+        assert_eq!(
+            router.handle_request("/users/123/posts").await,
+            Some("Posts for user: 123".to_string())
+        );
+
+        // Should fallback to parent route when child doesn't exist
+        assert_eq!(
+            router.handle_request("/users/123/settings").await,
+            Some("User: 123".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_exact_matches_without_children() {
+        // Test that exact matches take priority when root has no actual children defined
+        let router = ApexRouter::new()
+            .route("/", |_| async { "Root with <!-- @outlet -->".to_string() })
+            .route("/pathA", |_| async { "PathA".to_string() })
+            .route("/pathA/pathB", |_| async { "PathA/PathB".to_string() });
+
+        // For /pathA/pathB, should match the exact route since it exists
+        // Root-first matching only applies when using mount_route with actual children
+        assert_eq!(
+            router.handle_request("/pathA/pathB").await,
+            Some("PathA/PathB".to_string())
+        );
+
+        // Direct matches should still work
+        assert_eq!(
+            router.handle_request("/").await,
+            Some("Root with <!-- @outlet -->".to_string())
+        );
+
+        assert_eq!(
+            router.handle_request("/pathA").await,
+            Some("PathA".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_no_root_fallback() {
+        // Test that when no root route exists, router finds best entry point
+        let router = ApexRouter::new()
+            .route("/pathA", |_| async { "PathA".to_string() })
+            .route("/pathA/pathB", |_| async { "PathA/PathB".to_string() })
+            .route("/other", |_| async { "Other".to_string() });
+
+        // For /pathA/pathB, should match the exact route since it exists
+        assert_eq!(
+            router.handle_request("/pathA/pathB").await,
+            Some("PathA/PathB".to_string())
+        );
+
+        // For /pathA/pathC, should fallback to /pathA since pathC doesn't exist
+        assert_eq!(
+            router.handle_request("/pathA/pathC").await,
+            Some("PathA".to_string())
+        );
+
+        // For /pathA/pathB/pathC, should match /pathA/pathB and return its result
+        assert_eq!(
+            router.handle_request("/pathA/pathB/pathC").await,
+            Some("PathA/PathB".to_string())
+        );
+
+        // For completely different path, should match if it exists
+        assert_eq!(
+            router.handle_request("/other").await,
+            Some("Other".to_string())
+        );
+
+        // For non-existent path with no fallback, should return None
+        assert_eq!(router.handle_request("/nonexistent").await, None);
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_longest_match_priority() {
+        // Test that longer, more specific routes are matched before shorter ones
+        let router = ApexRouter::new()
+            .route("/api", |_| async { "API Root".to_string() })
+            .route("/api/users", |_| async { "Users API".to_string() })
+            .route("/api/users/profile", |_| async {
+                "User Profile".to_string()
+            });
+
+        // Should match most specific route first
+        assert_eq!(
+            router.handle_request("/api/users/profile").await,
+            Some("User Profile".to_string())
+        );
+
+        // Should match intermediate route
+        assert_eq!(
+            router.handle_request("/api/users").await,
+            Some("Users API".to_string())
+        );
+
+        // Should fallback to shorter route when longer doesn't exist
+        assert_eq!(
+            router.handle_request("/api/users/settings").await,
+            Some("Users API".to_string())
+        );
+
+        // Should fallback to root API route when no other matches
+        assert_eq!(
+            router.handle_request("/api/posts").await,
+            Some("API Root".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_routing_with_root_and_children() {
+        // Test combination of root route with child routes
+        let router = ApexRouter::new()
+            .route("/", |_| async { "Root".to_string() })
+            .route("/dashboard", |_| async { "Dashboard".to_string() })
+            .route("/dashboard/settings", |_| async {
+                "Dashboard Settings".to_string()
+            })
+            .route("/profile", |_| async { "Profile".to_string() });
+
+        // Root should be matched first for any request
+        assert_eq!(router.handle_request("/").await, Some("Root".to_string()));
+
+        // Direct child routes should work
+        assert_eq!(
+            router.handle_request("/dashboard").await,
+            Some("Dashboard".to_string())
+        );
+
+        // Nested routes should work
+        assert_eq!(
+            router.handle_request("/dashboard/settings").await,
+            Some("Dashboard Settings".to_string())
+        );
+
+        // Unknown nested path should fallback to parent
+        assert_eq!(
+            router.handle_request("/dashboard/unknown").await,
+            Some("Dashboard".to_string())
+        );
+
+        // Unknown root path should fallback to root
+        assert_eq!(
+            router.handle_request("/unknown").await,
+            Some("Root".to_string())
+        );
     }
 }

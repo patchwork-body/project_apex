@@ -350,6 +350,25 @@ pub(crate) fn render_ast(
                     }
                 }
             }
+            TmplAst::Outlet => {
+                // Generate code to call the outlet helper function
+                instructions.push(quote! {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        // Server-side: outlet content will be handled by the router
+                        // For now, add a placeholder comment
+                        buffer.push_str("<!-- @outlet -->");
+                    }
+                });
+
+                expressions.push(quote! {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        // Client-side: outlet placeholder for future client-side routing
+                        // This will be handled by the client-side router
+                    }
+                });
+            }
             _ => {}
         }
     }

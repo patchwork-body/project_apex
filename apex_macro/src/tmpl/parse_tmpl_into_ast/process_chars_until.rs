@@ -174,6 +174,13 @@ pub(crate) fn process_chars_until(
                         ast.push(TmplAst::ConditionalDirective(parse_conditional_directive(
                             chars,
                         )));
+                    } else if directive_name == "outlet" {
+                        // For outlet directive, we need to consume the closing brace
+                        // The directive_name parsing should have stopped at the '}'
+                        if chars.peek() == Some(&'}') {
+                            chars.next(); // consume the '}'
+                        }
+                        ast.push(TmplAst::Outlet);
                     }
 
                     state = ProcessCharsUntilState::Unknown;
@@ -1047,6 +1054,31 @@ mod tests {
                         children: vec![TmplAst::Text("Hello, world 2!".to_owned())],
                     },
                 ],
+            }]
+        );
+    }
+
+    #[test]
+    fn outlet_directive() {
+        let mut chars = "{#outlet}".chars().peekable();
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(ast, vec![TmplAst::Outlet]);
+    }
+
+    #[test]
+    fn outlet_directive_in_element() {
+        let mut chars = "<div>{#outlet}</div>".chars().peekable();
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::Outlet],
             }]
         );
     }
