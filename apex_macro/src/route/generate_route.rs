@@ -5,6 +5,30 @@ use syn::{FnArg, ItemFn, Pat};
 use super::parse_route_args::RouteArgs;
 use crate::component::to_pascal_case::to_pascal_case;
 
+/// Generate the children method implementation for ApexRoute trait
+fn generate_children_method(args: &RouteArgs) -> proc_macro2::TokenStream {
+    if args.children.is_empty() {
+        quote! {
+            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
+                vec![]
+            }
+        }
+    } else {
+        let children_route_names = &args.children;
+        let children_inits = children_route_names.iter().map(|child| {
+            quote! {
+                Box::new(#child) as Box<dyn apex::router::ApexRoute>
+            }
+        });
+
+        quote! {
+            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
+                vec![#(#children_inits),*]
+            }
+        }
+    }
+}
+
 /// Generate a route handler function that can be used with ApexRouter
 ///
 /// The macro transforms:
@@ -28,6 +52,9 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         &format!("{}Route", to_pascal_case(&fn_name.to_string())),
         fn_name.span(),
     );
+
+    // Generate children method implementation
+    let children_method = generate_children_method(&args);
 
     // Validate function signature - should accept HashMap<String, String> params
     validate_route_function(&input);
@@ -127,6 +154,8 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                                 })
                             })
                         }
+
+                        #children_method
                     }
 
                     // Helper function for accessing loader data (works on both client and server)
@@ -174,6 +203,8 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                                 })
                             })
                         }
+
+                        #children_method
                     }
                 }
             }
@@ -202,6 +233,8 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                             Box::pin(async move { { #fn_body } })
                         })
                     }
+
+                    #children_method
                 }
             }
         }

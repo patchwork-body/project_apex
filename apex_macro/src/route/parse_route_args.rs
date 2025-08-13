@@ -9,6 +9,7 @@ use syn::{
 pub(crate) struct RouteArgs {
     pub component: Option<Ident>,
     pub path: Option<LitStr>,
+    pub children: Vec<Ident>,
 }
 
 impl Parse for RouteArgs {
@@ -39,6 +40,17 @@ impl Parse for RouteArgs {
                         {
                             route_args.path = Some(s.clone());
                         }
+                    } else if name_value.path.is_ident("children") {
+                        // Handle children = [Route1, Route2, ...]
+                        if let syn::Expr::Array(array) = &name_value.value {
+                            for element in &array.elems {
+                                if let syn::Expr::Path(expr_path) = element {
+                                    if let Some(ident) = expr_path.path.get_ident() {
+                                        route_args.children.push(ident.clone());
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 Meta::Path(path) => {
@@ -59,7 +71,6 @@ impl Parse for RouteArgs {
 }
 
 /// Parse arguments from the route macro attribute
-/// Supports syntax like: #[route(component = HomeComponent, path = "/home")]
 pub(crate) fn parse_route_args(args: TokenStream) -> RouteArgs {
     if args.is_empty() {
         return RouteArgs::default();

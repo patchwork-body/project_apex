@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 use apex::{
-    wasm_bindgen::{prelude::Closure, JsCast},
+    wasm_bindgen::{JsCast, prelude::Closure},
     web_sys,
 };
 use std::{
@@ -284,14 +284,25 @@ impl Expression {
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct LoaderData {
-    pub name: String,
-    pub age: u8,
-}
+#[route(component = Calculator, path = "/calculator")]
+pub fn calculator_page(_params: HashMap<String, String>) {}
 
 #[component]
 pub fn calculator() {
+    let loader_data = get_root_page_loader_data();
+
+    let loader_name = derive!(loader_data, {
+        loader_data
+            .get()
+            .map_or("No data".to_owned(), |data| data.name)
+    });
+
+    let loader_age = derive!(loader_data, {
+        loader_data
+            .get()
+            .map_or("No data".to_owned(), |data| data.age.to_string())
+    });
+
     let expression = signal!(Expression::default());
     let prev_expression = signal!(None::<Expression>);
 
@@ -486,7 +497,13 @@ pub fn calculator() {
     }
 }
 
-#[route(component = Layout, path = "/{name}/{age}")]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LoaderData {
+    pub name: String,
+    pub age: u8,
+}
+
+#[route(component = Layout, path = "/{name}/{age}", children = [CalculatorPageRoute])]
 pub fn root_page(params: HashMap<String, String>) -> LoaderData {
     apex::apex_utils::reset_counters();
     println!("Root page accessed with params: {params:?}");
@@ -532,7 +549,7 @@ pub fn layout() {
             </head>
             <body>
                 <span class="loader-data">{loader_name.get()}: {loader_age.get()}</span>
-                <Calculator />
+                {#outlet}
             </body>
         </html>
     }

@@ -80,26 +80,10 @@ async fn handle_request(
             .header("content-type", "text/html")
             .body(full(content))
             .unwrap()),
-        None => {
-            // Handle root path specifically
-            if path == "/" {
-                match apex_router.handle_request("/").await {
-                    Some(content) => Ok(Response::builder()
-                        .header("content-type", "text/html")
-                        .body(full(content))
-                        .unwrap()),
-                    None => Ok(Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .body(full("Not Found"))
-                        .unwrap()),
-                }
-            } else {
-                Ok(Response::builder()
-                    .status(StatusCode::NOT_FOUND)
-                    .body(full("Not Found"))
-                    .unwrap())
-            }
-        }
+        None => Ok(Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(full("Not Found"))
+            .unwrap()),
     }
 }
 
