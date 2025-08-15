@@ -122,6 +122,62 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     let params_name = extract_params_name(&input);
 
     if let Some(component_name) = &args.component {
+        let has_children = !args.children.is_empty();
+
+        let hydrate_components_method = quote! {
+            fn hydrate_components(
+                &self,
+                pathname: &str,
+                expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
+                elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+            ) {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    web_sys::console::log_1(&format!("Hydrating route: {}, pathname: {}", self.path(), pathname).into());
+
+                    // Check if this route matches the current pathname
+                    let matches = if self.children().is_empty() {
+                        apex::router::path_matches_pattern(self.path(), pathname)
+                    } else {
+                        apex::router::path_matches_pattern_prefix(self.path(), pathname)
+                    };
+
+                    if matches {
+                        web_sys::console::log_1(&format!("Route matched! Hydrating component").into());
+
+                        // Build and hydrate the component
+                        let component = #component_name::builder().build();
+                        let hydrate_fn = component.hydrate();
+                        hydrate_fn(expressions_map, elements_map);
+
+                        // After hydrating parent, hydrate matching child routes
+                        // Child routes will continue with the current counter values
+                        #[allow(unused_variables)]
+                        let has_children = #has_children;
+
+                        if has_children {
+                            // Calculate the unmatched portion of the path
+                            // If parent is /{name}/{age} and pathname is /john/23/calculator
+                            // We need to extract /calculator
+                            let parent_pattern = self.path();
+                            let unmatched_path = apex::router::get_unmatched_path(parent_pattern, pathname);
+
+                            web_sys::console::log_1(&format!(
+                                "Parent matched {}, passing unmatched path '{}' to children",
+                                parent_pattern, unmatched_path
+                            ).into());
+
+                            for child in self.children() {
+                                child.hydrate_components(&unmatched_path, expressions_map, elements_map);
+                            }
+                        }
+                    } else {
+                        web_sys::console::log_1(&format!("Route did not match! Not hydrating component").into());
+                    }
+                }
+            }
+        };
+
         // Check if the route function returns something other than String
         let has_return_value = match &input.sig.output {
             syn::ReturnType::Type(_, ty) => {
@@ -164,32 +220,20 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                         let component = #component_name::builder().build();
                         let html = component.render_with_data(route_data.clone());
 
-                        // Inject INIT_DATA script if the HTML contains </head>
-                        if let Ok(serialized_data) = serde_json::to_string(&route_data) {
-                            let init_script = format!(
-                                r#"<script>window.INIT_DATA = {};</script>"#,
-                                serialized_data
-                            );
+                        // Store route data in the collector instead of injecting directly
+                        let route_name = stringify!(#fn_name);
+                        let _ = apex::init_data::add_route_data(route_name, &route_data);
 
-                            if let Some(head_end) = html.find("</head>") {
-                                let mut result = html.clone();
-                                result.insert_str(head_end, &init_script);
-                                result
-                            } else {
-                                html
-                            }
-                        } else {
-                            html
-                        }
+                        html
                     }
 
                     // struct-based route for ApexRouter::mount_route
-                    #[cfg(not(target_arch = "wasm32"))]
                     pub struct #route_struct_name;
 
-                    #[cfg(not(target_arch = "wasm32"))]
                     impl apex::router::ApexRoute for #route_struct_name {
                         fn path(&self) -> &'static str { #path }
+
+                        #[cfg(not(target_arch = "wasm32"))]
                         fn handler(&self) -> apex::router::ApexHandler {
                             Box::new(|#params_name: std::collections::HashMap<String, String>| {
                                 Box::pin(async move {
@@ -197,27 +241,25 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                                     let component = #component_name::builder().build();
                                     let html = component.render_with_data(route_data.clone());
 
-                                    // Inject INIT_DATA script if the HTML contains </head>
-                                    if let Ok(serialized_data) = serde_json::to_string(&route_data) {
-                                        let init_script = format!(
-                                            r#"<script>window.INIT_DATA = {};</script>"#,
-                                            serialized_data
-                                        );
+                                    // Store route data in the collector instead of injecting directly
+                                    let route_name = stringify!(#fn_name);
+                                    let _ = apex::init_data::add_route_data(route_name, &route_data);
 
-                                        if let Some(head_end) = html.find("</head>") {
-                                            let mut result = html.clone();
-                                            result.insert_str(head_end, &init_script);
-                                            result
-                                        } else {
-                                            html
-                                        }
-                                    } else {
-                                        html
-                                    }
+                                    html
                                 })
                             })
                         }
 
+                        #[cfg(target_arch = "wasm32")]
+                        fn handler(&self) -> apex::router::ApexHandler {
+                            Box::new(|#params_name: std::collections::HashMap<String, String>| {
+                                Box::pin(async move {
+                                    "".to_string()
+                                })
+                            })
+                        }
+
+                        #hydrate_components_method
                         #children_method
                     }
 
@@ -225,8 +267,9 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                     pub fn #client_helper_name() -> Signal<Option<#return_type>> {
                         #[cfg(target_arch = "wasm32")]
                         {
-                            // On client side, get data from INIT_DATA
-                            signal!(apex::init_data::get_typed_init_data::<#return_type>())
+                            // On client side, get data from INIT_DATA[route_name]
+                            let route_name = stringify!(#fn_name);
+                            signal!(apex::init_data::get_typed_route_data::<#return_type>(route_name))
                         }
                         #[cfg(not(target_arch = "wasm32"))]
                         {
@@ -284,6 +327,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                             })
                         }
 
+                        #hydrate_components_method
                         #children_method
                     }
 
@@ -320,6 +364,18 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                         Box::new(|#params_name: std::collections::HashMap<String, String>| {
                             Box::pin(async move { { #fn_body } })
                         })
+                    }
+
+                    fn hydrate_components(
+                        &self,
+                        pathname: &str,
+                        expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
+                        elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                    ) {
+                        // Route without component - just hydrate children if any
+                        for child in self.children() {
+                            apex::router::hydrate_child_with_parent_path(child.as_ref(), self.path(), pathname, expressions_map, elements_map);
+                        }
                     }
 
                     #children_method

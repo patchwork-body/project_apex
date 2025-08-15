@@ -18,6 +18,12 @@ pub trait ApexRoute: Send + Sync {
     fn children(&self) -> Vec<Box<dyn ApexRoute>> {
         Vec::new()
     }
+    fn hydrate_components(
+        &self,
+        pathname: &str,
+        expressions_map: &HashMap<String, web_sys::Text>,
+        elements_map: &HashMap<String, web_sys::Element>,
+    );
 }
 
 pub struct ApexRouter {
@@ -118,7 +124,23 @@ impl ApexRouter {
             .collect();
 
         // Try to find a matching route hierarchy
-        self.find_hierarchical_match(&segments).await
+        let html = self.find_hierarchical_match(&segments).await?;
+
+        // Inject collected INIT_DATA script if any routes had data
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let init_script = crate::init_data::generate_init_data_script();
+            if !init_script.is_empty() {
+                // Find </head> tag and inject the script before it
+                if let Some(head_end) = html.find("</head>") {
+                    let mut result = html.clone();
+                    result.insert_str(head_end, &init_script);
+                    return Some(result);
+                }
+            }
+        }
+
+        Some(html)
     }
 
     /// Check if a route pattern matches a path (handles parameters like /{name}/{age})
@@ -167,17 +189,15 @@ impl ApexRouter {
             .any(|(path, children)| path == "/" && !children.is_empty());
 
         // If root has actual children routes, prioritize hierarchical matching
-        if root_has_children {
-            if let Some(result) = self.try_match_from_path("/", segments).await {
-                return Some(result);
-            }
+        if root_has_children && let Some(result) = self.try_match_from_path("/", segments).await {
+            return Some(result);
         }
 
         // Handle empty segments (root path) first
-        if segments.is_empty() {
-            if let Some(result) = self.try_match_from_path("/", segments).await {
-                return Some(result);
-            }
+        if segments.is_empty()
+            && let Some(result) = self.try_match_from_path("/", segments).await
+        {
+            return Some(result);
         }
 
         // Try exact matches from most specific to least specific
@@ -197,10 +217,10 @@ impl ApexRouter {
             });
             let is_hierarchical_path = segments.len() > 1;
 
-            if root_has_children || is_hierarchical_path || has_nested_routes {
-                if let Some(result) = self.try_match_from_path("/", segments).await {
-                    return Some(result);
-                }
+            if (root_has_children || is_hierarchical_path || has_nested_routes)
+                && let Some(result) = self.try_match_from_path("/", segments).await
+            {
+                return Some(result);
             }
         }
 
@@ -411,19 +431,20 @@ pub fn server_outlet_match(
     let child_path = if parent_path == "/" {
         request_path.to_string()
     } else if request_path.starts_with(parent_path) {
-        request_path[parent_path.len()..].to_string()
+        request_path[{
+            let this = &parent_path;
+            this.len()
+        }..]
+            .to_string()
     } else {
         return None;
     };
 
     // Find matching child route
-    for child in children {
-        if path_matches_pattern(child.path(), &child_path) {
-            return Some(child);
-        }
-    }
-
-    None
+    children
+        .into_iter()
+        .find(|child| path_matches_pattern(child.path(), &child_path))
+        .map(|v| v as _)
 }
 
 /// Client-side outlet matching helper
@@ -440,6 +461,7 @@ pub fn client_outlet_match(
 
 /// Get client-side outlet content
 /// This would be implemented differently in a full client-side routing system
+#[allow(unused_variables)]
 pub fn get_client_outlet_content(parent_path: &str, request_path: &str) -> Option<String> {
     // Placeholder for client-side outlet rendering
     // In a real implementation, this would:
@@ -451,7 +473,7 @@ pub fn get_client_outlet_content(parent_path: &str, request_path: &str) -> Optio
 }
 
 /// Helper function to check if a path matches a route pattern
-fn path_matches_pattern(pattern: &str, path: &str) -> bool {
+pub fn path_matches_pattern(pattern: &str, path: &str) -> bool {
     let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
     let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
 
@@ -469,6 +491,115 @@ fn path_matches_pattern(pattern: &str, path: &str) -> bool {
     }
 
     true
+}
+
+/// Helper function to check if a path matches a route pattern as a prefix
+/// This is useful for parent routes that need to match when the path continues beyond their pattern
+pub fn path_matches_pattern_prefix(pattern: &str, path: &str) -> bool {
+    let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
+    let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+
+    // Path must have at least as many segments as the pattern
+    if path_segments.len() < pattern_segments.len() {
+        return false;
+    }
+
+    // Check only the segments covered by the pattern
+    for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
+        if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
+            // Parameter segment, matches any value
+            continue;
+        } else if pattern_seg != path_seg {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Get the unmatched portion of a path after matching a pattern
+/// For example: pattern="/{name}/{age}", path="/john/23/calculator" returns "/calculator"
+pub fn get_unmatched_path(pattern: &str, path: &str) -> String {
+    let pattern_segments: Vec<&str> = pattern
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let path_segments: Vec<&str> = path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // If path has fewer segments than pattern, return empty
+    if path_segments.len() <= pattern_segments.len() {
+        return String::from("/");
+    }
+
+    // Get the remaining segments after the pattern matches
+    let remaining_segments = &path_segments[pattern_segments.len()..];
+
+    if remaining_segments.is_empty() {
+        String::from("/")
+    } else {
+        format!("/{}", remaining_segments.join("/"))
+    }
+}
+
+/// Helper function to hydrate child routes with parent path context
+/// This combines the parent path with child path to check against the full pathname
+#[cfg(target_arch = "wasm32")]
+pub fn hydrate_child_with_parent_path(
+    child: &dyn ApexRoute,
+    parent_path: &str,
+    pathname: &str,
+    expressions_map: &std::collections::HashMap<String, web_sys::Text>,
+    elements_map: &std::collections::HashMap<String, web_sys::Element>,
+) {
+    // Combine parent and child paths to get the full path
+    let parent_clean = parent_path.trim_end_matches('/');
+    let child_clean = child.path().trim_start_matches('/');
+
+    let full_child_path = if parent_clean.is_empty() || parent_clean == "/" {
+        format!("/{}", child_clean)
+    } else {
+        format!("{}/{}", parent_clean, child_clean)
+    };
+
+    web_sys::console::log_1(
+        &format!(
+            "checking child - full path: {}, pathname: {}",
+            full_child_path, pathname
+        )
+        .into(),
+    );
+
+    // Check if the full child path matches the pathname
+    if path_matches_pattern(&full_child_path, pathname) {
+        web_sys::console::log_1(
+            &format!(
+                "matched child: full path: {}, pathname: {}",
+                full_child_path, pathname
+            )
+            .into(),
+        );
+
+        // Directly hydrate the child component
+        // The counter state is maintained because we don't reset it
+        child.hydrate_components(pathname, expressions_map, elements_map);
+    }
+}
+
+/// Server-side stub for hydrate_child_with_parent_path
+#[cfg(not(target_arch = "wasm32"))]
+pub fn hydrate_child_with_parent_path(
+    _child: &dyn ApexRoute,
+    _parent_path: &str,
+    _pathname: &str,
+    _expressions_map: &std::collections::HashMap<String, web_sys::Text>,
+    _elements_map: &std::collections::HashMap<String, web_sys::Element>,
+) {
+    // No-op on server side
 }
 
 impl Default for ApexRouter {

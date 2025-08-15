@@ -46,6 +46,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "js-sys",
+ "lazy_static",
  "matchit",
  "proc-macro2",
  "quote",

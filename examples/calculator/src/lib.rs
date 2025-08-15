@@ -498,12 +498,50 @@ pub fn calculator() {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct AboutLoaderData {
+    pub name: String,
+    pub age: u8,
+}
+
+#[route(component = About, path = "/about")]
+pub fn about_page(_params: HashMap<String, String>) -> AboutLoaderData {
+    AboutLoaderData {
+        name: "Mike".to_owned(),
+        age: 30,
+    }
+}
+
+#[component]
+pub fn about() {
+    let loader_data = get_about_page_loader_data();
+
+    let loader_name = derive!(loader_data, {
+        loader_data
+            .get()
+            .map_or("No data".to_owned(), |data| data.name)
+    });
+
+    let loader_age = derive!(loader_data, {
+        loader_data
+            .get()
+            .map_or("No data".to_owned(), |data| data.age.to_string())
+    });
+
+    tmpl! {
+        <div class="about">
+            <h1>About {loader_name.get()}</h1>
+            <p>Age: {loader_age.get()}</p>
+        </div>
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct LoaderData {
     pub name: String,
     pub age: u8,
 }
 
-#[route(component = Layout, path = "/{name}/{age}", children = [CalculatorPageRoute])]
+#[route(component = Layout, path = "/{name}/{age}", children = [CalculatorPageRoute, AboutPageRoute])]
 pub fn root_page(params: HashMap<String, String>) -> LoaderData {
     apex::apex_utils::reset_counters();
     println!("Root page accessed with params: {params:?}");

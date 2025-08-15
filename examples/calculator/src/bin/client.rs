@@ -4,11 +4,15 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     {
         use apex::prelude::*;
-        use calculator::{Calculator, Layout};
+        use calculator::RootPageRoute;
 
-        apex::Apex::hydrate(tmpl! {
-           <Layout />
-           <Calculator />
-        });
+        // Test route-based hydration
+        apex::Apex::hydrate(RootPageRoute);
+
+        // This works but we want route-based to work too:
+        // apex::Apex::hydrate2(tmpl! {
+        //     <Layout />
+        //     <Calculator />
+        // });
     }
 }

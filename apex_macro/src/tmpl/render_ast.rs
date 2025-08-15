@@ -244,6 +244,8 @@ pub(crate) fn render_ast(
 
                     expressions.push(quote! {
                         let element_counter = #element_counter;
+                        #[cfg(target_arch = "wasm32")]
+                        apex::web_sys::console::log_1(&format!("hydration: element_counter = {}", element_counter).into());
                     });
 
                     let attr_setters_expressions = sorted_attributes
@@ -291,6 +293,8 @@ pub(crate) fn render_ast(
                                         {
                                             use apex::wasm_bindgen::prelude::*;
                                             use apex::web_sys::*;
+
+                                            apex::web_sys::console::log_1(&format!("assigning event listener for event name: {}", #event_name).into());
 
                                             let handler_fn = (#handler_tokens).clone();
                                             let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
