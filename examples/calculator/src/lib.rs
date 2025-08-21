@@ -9,6 +9,7 @@ use std::{
 };
 
 use apex::prelude::*;
+use apex_components::Link;
 
 #[component]
 pub fn button(
@@ -289,20 +290,6 @@ pub fn calculator_page(_params: HashMap<String, String>) {}
 
 #[component]
 pub fn calculator() {
-    let loader_data = get_root_page_loader_data();
-
-    let loader_name = derive!(loader_data, {
-        loader_data
-            .get()
-            .map_or("No data".to_owned(), |data| data.name)
-    });
-
-    let loader_age = derive!(loader_data, {
-        loader_data
-            .get()
-            .map_or("No data".to_owned(), |data| data.age.to_string())
-    });
-
     let expression = signal!(Expression::default());
     let prev_expression = signal!(None::<Expression>);
 
@@ -586,6 +573,11 @@ pub fn layout() {
                 <script type="module" src="/static/init.js"></script>
             </head>
             <body>
+                <Link href={format!("/{}/{}/about", loader_name.get(), loader_age.get())} text="About" />
+                <Link href={format!("/{}/{}/calculator", loader_name.get(), loader_age.get())} text="Calculator" />
+
+                <hr />
+
                 <span class="loader-data">{loader_name.get()}: {loader_age.get()}</span>
                 {#outlet}
             </body>

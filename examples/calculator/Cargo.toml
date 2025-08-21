@@ -19,6 +19,7 @@ apex = { path = "../../apex" }
 apex_macro = { path = "../../apex_macro" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "^1.0" }
+apex_components = { path = "../../apex_components" }
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -29,13 +30,10 @@ console_error_panic_hook = { version = "0.1", optional = true }
 tokio = { version = "^1", features = ["full"] }
 sqlx = { version = "^0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
 http = { version = "^1" }
-
 hyper = { version = "^1" }
 hyper-util = { version = "^0.1", features = ["tokio"] }
 bytes = { version = "^1.10" }
 http-body-util = { version = "^0.1" }
-
-
 
 [lints]
 workspace = true

@@ -59,6 +59,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "apex_components"
+version = "0.1.0"
+dependencies = [
+ "apex",
+]
+
+[[package]]
 name = "apex_macro"
 version = "0.1.0"
 dependencies = [
@@ -171,6 +178,7 @@ name = "calculator"
 version = "0.1.0"
 dependencies = [
  "apex",
+ "apex_components",
  "apex_macro",
  "bytes",
  "console_error_panic_hook",

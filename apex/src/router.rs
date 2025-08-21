@@ -13,7 +13,12 @@ pub trait ApexRoute: Send + Sync {
     /// Static path for this route (e.g., "/users/:id")
     fn path(&self) -> &'static str;
     /// Handler function invoked by the router
-    fn handler(&self) -> ApexHandler;
+    fn handler(&self) -> ApexHandler {
+        Box::new(|_| Box::pin(async move { "".to_string() }))
+    }
+    fn chunk_handler(&self) -> ApexHandler {
+        Box::new(|_| Box::pin(async move { "".to_string() }))
+    }
     /// Children routes for nested routing
     fn children(&self) -> Vec<Box<dyn ApexRoute>> {
         Vec::new()
@@ -83,15 +88,6 @@ impl ApexRouter {
 
         // Store route metadata for outlet handling
         self.routes.push((path.to_string(), children));
-
-        // Don't mount children routes as direct routes - they will be handled through outlets
-        // for child in route.children() {
-        //     let child_path = self.combine_paths(path, child.path());
-        //     let child_handler = child.handler();
-        //     if let Err(e) = self.router.insert(&child_path, child_handler) {
-        //         panic!("Failed to insert child route '{child_path}': {e}");
-        //     }
-        // }
 
         self
     }
