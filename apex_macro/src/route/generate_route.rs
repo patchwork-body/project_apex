@@ -250,15 +250,6 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                             })
                         }
 
-                        #[cfg(target_arch = "wasm32")]
-                        fn chunk_handler(&self) -> apex::router::ApexHandler {
-                            Box::new(|#params_name: std::collections::HashMap<String, String>| {
-                                Box::pin(async move {
-                                    "".to_string()
-                                })
-                            })
-                        }
-
                         #hydrate_components_method
                         #children_method
                     }
