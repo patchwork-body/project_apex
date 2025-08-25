@@ -68,6 +68,7 @@ async fn handle_request(
     apex_router: Arc<ApexRouter>,
 ) -> Result<Response<BoxBody>, hyper::Error> {
     let path = req.uri().path();
+    let query = req.uri().query().unwrap_or("");
 
     // Handle static files
     if path.starts_with("/static/") {
@@ -75,7 +76,7 @@ async fn handle_request(
     }
 
     // Handle dynamic routes with Apex router
-    match apex_router.handle_request(path).await {
+    match apex_router.handle_request(path, query).await {
         Some(content) => Ok(Response::builder()
             .header("content-type", "text/html")
             .body(full(content))

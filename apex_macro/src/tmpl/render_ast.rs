@@ -361,7 +361,7 @@ pub(crate) fn render_ast(
                     {
                         // Server-side: outlet content will be handled by the router
                         // For now, add a placeholder comment
-                        buffer.push_str("<!-- @outlet -->");
+                        buffer.push_str("<!-- @outlet-begin --><!-- @outlet-end -->");
                     }
                 });
 

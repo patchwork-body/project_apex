@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 use wasm_bindgen::{JsCast, prelude::Closure};
 use web_sys::{Comment, Element, Text};
 
@@ -29,11 +29,10 @@ impl Apex {
     where
         R: router::ApexRoute + 'static,
     {
-        apex_utils::reset_counters();
-        static SHOW_COMMENT: u32 = 128;
-
+        let route = Rc::new(route);
         let window = web_sys::window().expect("window not found");
         let document = window.document().expect("document not found");
+        let route_clone = route.clone();
 
         let navigate_callback = Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
             if let Some(path) = event.detail().as_string() {
@@ -43,57 +42,49 @@ impl Apex {
 
                 web_sys::console::log_1(&format!("Navigating to: {path}").into());
 
-                // Update URL in browser history
-                let _ = history.push_state_with_url(&js_sys::Object::new(), "", Some(&path));
+                let current_path = window.location().pathname().expect("pathname not found");
+                let exclude_path = crate::router::get_matched_path(&current_path, &path);
 
                 // Fetch the new page content
-                let fetch_promise = window.fetch_with_str(&path);
+                let fetch_promise =
+                    window.fetch_with_str(&format!("{path}?exclude={exclude_path}"));
 
                 // Handle the fetch response
                 let document_clone = document.clone();
-                let path_clone = path.clone();
+                let path_clone: String = path.clone();
+                let route = route_clone.clone();
+                let history_clone = history.clone();
+
                 let response_callback =
                     Closure::wrap(Box::new(move |response: wasm_bindgen::JsValue| {
                         let document = document_clone.clone();
                         let path = path_clone.clone();
+                        let history = history_clone.clone();
 
                         // Cast JsValue to Response
                         if let Ok(response) = response.dyn_into::<web_sys::Response>() {
                             let text_promise = response.text().unwrap();
                             let document_clone2 = document.clone();
+                            let route = route.clone();
+
                             let text_callback =
                                 Closure::wrap(Box::new(move |html_text: wasm_bindgen::JsValue| {
                                     let document = document_clone2.clone();
+                                    let route = route.clone();
+
                                     if let Some(html_text) = html_text.as_string() {
                                         web_sys::console::log_1(
                                             &format!("Fetched content for: {path}").into(),
                                         );
 
-                                        // Simple approach: extract body content from HTML string
-                                        // Look for <body> tags and extract content between them
-                                        if let Some(body_start) = html_text.find("<body")
-                                            && let Some(body_content_start) =
-                                                html_text[body_start..].find('>')
-                                        {
-                                            let body_content_start =
-                                                body_start + body_content_start + 1;
-                                            if let Some(body_end) =
-                                                html_text[body_content_start..].find("</body>")
-                                            {
-                                                let body_content = &html_text[body_content_start
-                                                    ..body_content_start + body_end];
+                                        // Self::hydrate_components(route);
 
-                                                // Replace the current page body content
-                                                if let Some(current_body) = document.body() {
-                                                    current_body.set_inner_html(body_content);
-                                                }
-                                            }
-                                        }
-
-                                        // Re-run hydration on the new content
-                                        // Note: We would need access to the route here to call hydrate_components
-                                        // This is a simplified version - in a full implementation you'd want to
-                                        // store the route reference or re-fetch component mappings
+                                        // Update URL in browser history
+                                        let _ = history.push_state_with_url(
+                                            &js_sys::Object::new(),
+                                            "",
+                                            Some(&path),
+                                        );
                                     }
                                 })
                                     as Box<dyn FnMut(wasm_bindgen::JsValue)>);
@@ -116,82 +107,16 @@ impl Apex {
 
         navigate_callback.forget();
 
-        // Add popstate event listener for browser back/forward navigation
-        let window_clone = window.clone();
-        let document_clone = document.clone();
-        let popstate_callback = Closure::wrap(Box::new(move |_event: web_sys::PopStateEvent| {
-            let window = window_clone.clone();
-            let document = document_clone.clone();
+        Self::hydrate_components(route);
+    }
 
-            // Get the current path from location
-            let location = window.location();
-            let pathname = location.pathname().unwrap_or_else(|_| "/".to_string());
+    pub fn hydrate_components(route: Rc<dyn router::ApexRoute>) {
+        apex_utils::reset_counters();
+        static SHOW_COMMENT: u32 = 128;
 
-            web_sys::console::log_1(&format!("Popstate navigation to: {pathname}").into());
+        let window = web_sys::window().expect("window not found");
+        let document = window.document().expect("document not found");
 
-            // Fetch the content for the new path
-            let fetch_promise = window.fetch_with_str(&pathname);
-
-            // Handle the fetch response
-            let document_clone2 = document.clone();
-            let pathname_clone = pathname.clone();
-            let response_callback =
-                Closure::wrap(Box::new(move |response: wasm_bindgen::JsValue| {
-                    let document = document_clone2.clone();
-                    let path = pathname_clone.clone();
-
-                    // Cast JsValue to Response
-                    if let Ok(response) = response.dyn_into::<web_sys::Response>() {
-                        let text_promise = response.text().unwrap();
-                        let document_clone3 = document.clone();
-                        let text_callback =
-                            Closure::wrap(Box::new(move |html_text: wasm_bindgen::JsValue| {
-                                let document = document_clone3.clone();
-                                if let Some(html_text) = html_text.as_string() {
-                                    web_sys::console::log_1(
-                                        &format!("Fetched content for popstate: {path}").into(),
-                                    );
-
-                                    // Extract body content from HTML string
-                                    if let Some(body_start) = html_text.find("<body")
-                                        && let Some(body_content_start) =
-                                            html_text[body_start..].find('>')
-                                    {
-                                        let body_content_start =
-                                            body_start + body_content_start + 1;
-                                        if let Some(body_end) =
-                                            html_text[body_content_start..].find("</body>")
-                                        {
-                                            let body_content = &html_text
-                                                [body_content_start..body_content_start + body_end];
-
-                                            // Replace the current page body content
-                                            if let Some(current_body) = document.body() {
-                                                current_body.set_inner_html(body_content);
-                                            }
-                                        }
-                                    }
-                                }
-                            })
-                                as Box<dyn FnMut(wasm_bindgen::JsValue)>);
-
-                        let _ = text_promise.then(&text_callback);
-                        text_callback.forget();
-                    }
-                }) as Box<dyn FnMut(wasm_bindgen::JsValue)>);
-
-            let _ = fetch_promise.then(&response_callback);
-            response_callback.forget();
-        }) as Box<dyn FnMut(_)>);
-
-        let _ = window.add_event_listener_with_callback(
-            "popstate",
-            popstate_callback.as_ref().unchecked_ref(),
-        );
-
-        popstate_callback.forget();
-
-        // Start hydrating the page
         let tree_walker = document
             .create_tree_walker_with_what_to_show(
                 &document.body().expect("body not found"),

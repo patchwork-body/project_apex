@@ -47,42 +47,9 @@ fn generate_outlet_helpers(
             /// Helper function to match child routes for outlet rendering
             /// Returns the route struct that should render in the outlet for the given path
             pub fn #outlet_helper_name(request_path: &str) -> Option<Box<dyn apex::router::ApexRoute>> {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    // Server-side outlet matching
-                    apex::router::server_outlet_match(#route_path, request_path, vec![
-                        #(Box::new(#children_route_names) as Box<dyn apex::router::ApexRoute>),*
-                    ])
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    // Client-side outlet matching
-                    apex::router::client_outlet_match(#route_path, request_path, vec![
-                        #(Box::new(#children_route_names) as Box<dyn apex::router::ApexRoute>),*
-                    ])
-                }
-            }
-
-            /// Get the child route that should render for the current request
-            /// This is used in templates with {#outlet} directive
-            pub fn get_outlet_content(request_path: &str) -> Option<String> {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    // Server-side: render the matched child route
-                    if let Some(child_route) = #outlet_helper_name(request_path) {
-                        let handler = child_route.handler();
-                        // Extract params from the path
-                        let params = apex::router::extract_route_params(child_route.path(), request_path);
-                        Some(tokio::runtime::Handle::current().block_on(handler(params)))
-                    } else {
-                        None
-                    }
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    // Client-side: get content from client-side routing
-                    apex::router::get_client_outlet_content(#route_path, request_path)
-                }
+                apex::router::outlet_match(#route_path, request_path, vec![
+                    #(Box::new(#children_route_names) as Box<dyn apex::router::ApexRoute>),*
+                ])
             }
         }
     }
