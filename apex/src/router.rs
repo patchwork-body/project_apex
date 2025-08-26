@@ -310,7 +310,11 @@ impl ApexRouter {
                         .render_children_recursively(current_path, remaining_segments)
                         .await
                 {
-                    return Some(self.replace_outlet_content(&base_result, &child_result));
+                    return Some(self.replace_outlet_content(
+                        current_path,
+                        &base_result,
+                        &child_result,
+                    ));
                 }
 
                 // Return base result even if we couldn't match children
@@ -364,6 +368,7 @@ impl ApexRouter {
                                         .await
                                     {
                                         return Some(self.replace_outlet_content(
+                                            route_path,
                                             &child_result,
                                             &grandchild_result,
                                         ));
@@ -407,6 +412,7 @@ impl ApexRouter {
                                             .await
                                         {
                                             return Some(self.replace_outlet_content(
+                                                route_path,
                                                 &child_result,
                                                 &grandchild_result,
                                             ));
@@ -433,7 +439,12 @@ impl ApexRouter {
     }
 
     /// Helper method to replace outlet content
-    fn replace_outlet_content(&self, parent_content: &str, child_content: &str) -> String {
+    fn replace_outlet_content(
+        &self,
+        path: &str,
+        parent_content: &str,
+        child_content: &str,
+    ) -> String {
         let outlet_begin = "<!-- @outlet-begin -->";
         let outlet_end = "<!-- @outlet-end -->";
 
@@ -441,9 +452,17 @@ impl ApexRouter {
             return parent_content.to_string();
         };
 
-        start += outlet_begin.len();
+        // Add path to the outlet begin
+        let outlet_begin_with_path = format!("<!-- @outlet-begin:{} -->", path);
+        let outlet_end_with_path = format!("<!-- @outlet-end:{} -->", path);
 
-        let Some(end) = parent_content.find(outlet_end) else {
+        // Replace the outlet begin with the new path
+        let parent_content = parent_content.replace(outlet_begin, &outlet_begin_with_path);
+        let parent_content = parent_content.replace(outlet_end, &outlet_end_with_path);
+
+        start += outlet_begin_with_path.len();
+
+        let Some(end) = parent_content.find(&outlet_end_with_path) else {
             return parent_content.to_string();
         };
 
@@ -559,16 +578,15 @@ pub fn get_matched_path(pattern: &str, path: &str) -> String {
         return String::from("/");
     }
 
-    let mut matched_path = String::from("/");
+    let mut matched_path = vec![];
 
     for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
         if pattern_seg == path_seg {
-            matched_path.push_str(path_seg);
-            matched_path.push('/');
+            matched_path.push(path_seg.to_string());
         }
     }
 
-    matched_path
+    format!("/{}", matched_path.join("/"))
 }
 
 /// Helper function to hydrate child routes with parent path context

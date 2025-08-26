@@ -68,11 +68,14 @@ pub(crate) fn render_ast(
                         {
                             #(let #vars = #vars.clone();)*
                             let text_node_counter = #text_node_counter;
-                            let text_node = expressions_map.get(&text_node_counter.to_string()).expect("text node not found").clone();
+                            if let Some(text_node) = expressions_map.get(&text_node_counter.to_string()).cloned() {
 
-                            apex::effect!({
-                                text_node.set_data(&(#expr_tokens).to_string());
-                            });
+                                apex::effect!({
+                                    text_node.set_data(&(#expr_tokens).to_string());
+                                });
+                            } else {
+                                apex::web_sys::console::warn_1(&format!("Warning: text node {} not found during hydration", text_node_counter).into());
+                            }
                         }
                     });
 
@@ -261,11 +264,13 @@ pub(crate) fn render_ast(
                                     Some(quote! {
                                         {
                                             #(let #vars = #vars.clone();)*
-                                            let element = elements_map.get(&element_counter.to_string()).expect("element not found").clone();
-
-                                            apex::effect!({
-                                                element.set_attribute(#k, &(#expr_tokens).to_string());
-                                            });
+                                            if let Some(element) = elements_map.get(&element_counter.to_string()).cloned() {
+                                                apex::effect!({
+                                                    element.set_attribute(#k, &(#expr_tokens).to_string());
+                                                });
+                                            } else {
+                                                apex::web_sys::console::warn_1(&format!("Warning: element {} not found during hydration", element_counter.to_string()).into());
+                                            }
                                         }
                                     })
                                 } else {
@@ -301,14 +306,15 @@ pub(crate) fn render_ast(
                                                 handler_fn(event);
                                             }) as Box<dyn FnMut(web_sys::Event)>);
 
-                                            let element = elements_map.get(&element_counter.to_string()).expect("element not found").clone();
-
-                                            let _ = element.add_event_listener_with_callback(
-                                                #event_name,
-                                                closure.as_ref().unchecked_ref()
-                                            );
-
-                                            closure.forget(); // Prevent cleanup
+                                            if let Some(element) = elements_map.get(&element_counter.to_string()).cloned() {
+                                                let _ = element.add_event_listener_with_callback(
+                                                    #event_name,
+                                                    closure.as_ref().unchecked_ref()
+                                                );
+                                                closure.forget(); // Prevent cleanup
+                                            } else {
+                                                apex::web_sys::console::warn_1(&format!("Warning: element {} not found during event listener attachment", element_counter.to_string()).into());
+                                            }
                                         }
                                     })
                                 } else {
@@ -355,12 +361,9 @@ pub(crate) fn render_ast(
                 }
             }
             TmplAst::Outlet => {
-                // Generate code to call the outlet helper function
                 instructions.push(quote! {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        // Server-side: outlet content will be handled by the router
-                        // For now, add a placeholder comment
                         buffer.push_str("<!-- @outlet-begin --><!-- @outlet-end -->");
                     }
                 });
