@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use wasm_bindgen::{JsCast, prelude::Closure};
-use web_sys::{Comment, Element, Text};
+use web_sys::{Comment, Element, Node, Text};
 
 pub mod prelude;
 
@@ -63,7 +63,7 @@ impl Apex {
 
                     // Fetch the new page content
                     let fetch_promise =
-                        window.fetch_with_str(&format!("{path}?exclude={exclude_path}"));
+                        window.fetch_with_str(&format!("{path}?exclude={exclude_path}&"));
 
                     // Handle the fetch response
                     let document_clone = document.clone();
@@ -159,6 +159,7 @@ impl Apex {
         // Add rehydrate event listener
         let rehydrate_callback = {
             let outlets = self.outlets.clone();
+            let route = route.clone();
 
             Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
                 let outlets = outlets.borrow_mut();
@@ -223,6 +224,9 @@ impl Apex {
                             let _ = parent.insert_before(&child, Some(end));
                         }
                     }
+
+                    let mut apex = Apex::new();
+                    apex.hydrate_components(route.clone(), &outlet_key);
                 }
             }) as Box<dyn FnMut(_)>)
         };
@@ -241,11 +245,12 @@ impl Apex {
 
         navigate_callback.forget();
 
-        self.hydrate_components(route);
+        self.hydrate_components(route, "");
     }
 
-    pub fn hydrate_components(&mut self, route: Rc<dyn router::ApexRoute>) {
+    pub fn hydrate_components(&mut self, route: Rc<dyn router::ApexRoute>, exclude_path: &str) {
         apex_utils::reset_counters();
+        // Note: Deterministic ID generation eliminates the need for counter resets
         static SHOW_COMMENT: u32 = 128;
 
         let window = web_sys::window().expect("window not found");
@@ -356,7 +361,7 @@ impl Apex {
         let location = window.location();
         let pathname = location.pathname().expect("pathname not found");
 
-        route.hydrate_components(&pathname, &expressions_map, &elements_map);
+        route.hydrate_components(&pathname, exclude_path, &expressions_map, &elements_map);
     }
 }
 

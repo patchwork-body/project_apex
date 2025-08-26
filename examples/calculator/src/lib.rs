@@ -530,9 +530,6 @@ pub struct LoaderData {
 
 #[route(component = Layout, path = "/{name}/{age}", children = [CalculatorPageRoute, AboutPageRoute])]
 pub fn root_page(params: HashMap<String, String>) -> LoaderData {
-    apex::apex_utils::reset_counters();
-    println!("Root page accessed with params: {params:?}");
-
     LoaderData {
         name: params
             .get("name")

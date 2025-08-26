@@ -26,6 +26,7 @@ pub trait ApexRoute: Send + Sync {
     fn hydrate_components(
         &self,
         pathname: &str,
+        exclude_path: &str,
         expressions_map: &HashMap<String, web_sys::Text>,
         elements_map: &HashMap<String, web_sys::Element>,
     );
@@ -98,6 +99,8 @@ impl ApexRouter {
     /// 2. Otherwise, tries exact matches from most specific to least specific
     /// 3. Falls back to root as last resort if it exists
     pub async fn handle_request(&self, path: &str, query: &str) -> Option<String> {
+        apex_utils::reset_counters();
+
         let segments: Vec<&str> = path
             .trim_start_matches('/')
             .split('/')
@@ -611,7 +614,7 @@ pub fn hydrate_child_with_parent_path(
     // Check if the full child path matches the pathname
     if path_matches_pattern(&full_child_path, pathname) {
         // Directly hydrate the child component
-        child.hydrate_components(pathname, expressions_map, elements_map);
+        child.hydrate_components(pathname, "", expressions_map, elements_map);
     }
 }
 
@@ -1177,6 +1180,7 @@ mod tests {
             fn hydrate_components(
                 &self,
                 _pathname: &str,
+                _exclude_path: &str,
                 _expressions_map: &HashMap<String, web_sys::Text>,
                 _elements_map: &HashMap<String, web_sys::Element>,
             ) {
@@ -1195,6 +1199,7 @@ mod tests {
             fn hydrate_components(
                 &self,
                 _pathname: &str,
+                _exclude_path: &str,
                 _expressions_map: &HashMap<String, web_sys::Text>,
                 _elements_map: &HashMap<String, web_sys::Element>,
             ) {

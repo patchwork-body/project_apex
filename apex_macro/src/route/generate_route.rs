@@ -95,6 +95,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             fn hydrate_components(
                 &self,
                 pathname: &str,
+                exclude_path: &str,
                 expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
                 elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
             ) {
@@ -111,11 +112,18 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
 
                     if matches {
                         web_sys::console::log_1(&format!("Route matched! Hydrating component").into());
+                        let mut unmatched_exclude_path = exclude_path.to_string();
 
-                        // Build and hydrate the component
-                        let component = #component_name::builder().build();
-                        let hydrate_fn = component.hydrate();
-                        hydrate_fn(expressions_map, elements_map);
+                        if apex::router::path_matches_pattern_prefix(self.path(), exclude_path) {
+                            unmatched_exclude_path = apex::router::get_unmatched_path(self.path(), exclude_path);
+                        } else {
+                            // Build and hydrate the component
+                            let component = #component_name::builder().build();
+                            let hydrate_fn = component.hydrate();
+                            hydrate_fn(expressions_map, elements_map);
+                        }
+
+                        web_sys::console::log_1(&format!("Unmatched exclude path: {}, exclude_path: {}, self.path: {}, pathname: {}", unmatched_exclude_path, exclude_path, self.path(), pathname).into());
 
                         // After hydrating parent, hydrate matching child routes
                         // Child routes will continue with the current counter values
@@ -135,7 +143,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                             ).into());
 
                             for child in self.children() {
-                                child.hydrate_components(&unmatched_path, expressions_map, elements_map);
+                                child.hydrate_components(&unmatched_path, &unmatched_exclude_path, expressions_map, elements_map);
                             }
                         }
                     } else {
@@ -318,6 +326,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                     fn hydrate_components(
                         &self,
                         pathname: &str,
+                        _exclude_path: &str,
                         expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
                         elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
                     ) {
