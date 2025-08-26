@@ -250,7 +250,6 @@ impl Apex {
 
     pub fn hydrate_components(&mut self, route: Rc<dyn router::ApexRoute>, exclude_path: &str) {
         apex_utils::reset_counters();
-        // Note: Deterministic ID generation eliminates the need for counter resets
         static SHOW_COMMENT: u32 = 128;
 
         let window = web_sys::window().expect("window not found");
