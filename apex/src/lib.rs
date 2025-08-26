@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use wasm_bindgen::{JsCast, prelude::Closure};
-use web_sys::{Comment, Element, Node, Text};
+use web_sys::{Comment, Element, Text};
 
 pub mod prelude;
 
@@ -45,11 +45,8 @@ impl Apex {
         let route = Rc::new(route);
         let window = web_sys::window().expect("window not found");
         let document = window.document().expect("document not found");
-        let route_clone = route.clone();
 
         let navigate_callback = {
-            let route_clone = route_clone.clone();
-
             Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
                 if let Some(path) = event.detail().as_string() {
                     let window = web_sys::window().expect("window not found");
@@ -68,7 +65,6 @@ impl Apex {
                     // Handle the fetch response
                     let document_clone = document.clone();
                     let path_clone: String = path.clone();
-                    let route = route_clone.clone();
                     let history_clone = history.clone();
 
                     let response_callback = {
