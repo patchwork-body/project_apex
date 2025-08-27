@@ -72,15 +72,11 @@ fn generate_outlet_helpers(
 pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     // Extract function details
     let fn_name = &input.sig.ident;
-    let fn_vis = &input.vis;
     let fn_body = &input.block;
     let route_struct_name = syn::Ident::new(
         &format!("{}Route", to_pascal_case(&fn_name.to_string())),
         fn_name.span(),
     );
-
-    // Generate children method implementation
-    let children_method = generate_children_method(&args);
 
     // Validate function signature - should accept HashMap<String, String> params
     validate_route_function(&input);
@@ -88,10 +84,155 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     // Extract the params parameter name from function signature
     let params_name = extract_params_name(&input);
 
-    if let Some(component_name) = &args.component {
-        let has_children = !args.children.is_empty();
+    let has_children = !args.children.is_empty();
+    let has_component = args.component.is_some();
 
-        let hydrate_components_method = quote! {
+    let hydrate_components_method_logic = if has_component {
+        let Some(component_name) = args.component.as_ref() else {
+            panic!("Route with return value must have a component");
+        };
+
+        quote! {
+            #[cfg(target_arch = "wasm32")]
+            {
+                // Check if this route matches the current pathname
+                let matches = if self.children().is_empty() {
+                    apex::router::path_matches_pattern(self.path(), pathname)
+                } else {
+                    apex::router::path_matches_pattern_prefix(self.path(), pathname)
+                };
+
+                if matches {
+                    let mut unmatched_exclude_path = exclude_path.to_string();
+
+                    if apex::router::path_matches_pattern_prefix(self.path(), exclude_path) {
+                        unmatched_exclude_path = apex::router::get_unmatched_path(self.path(), exclude_path);
+                    } else {
+                        let component = #component_name::builder().build();
+                        let hydrate_fn = component.hydrate();
+                        hydrate_fn(expressions_map, elements_map);
+                    }
+
+                    // After hydrating parent, hydrate matching child routes
+                    // Child routes will continue with the current counter values
+                    #[allow(unused_variables)]
+                    let has_children = #has_children;
+
+                    if has_children {
+                        // Calculate the unmatched portion of the path
+                        let parent_pattern = self.path();
+                        let unmatched_path = apex::router::get_unmatched_path(parent_pattern, pathname);
+
+                        for child in self.children() {
+                            child.hydrate_components(&unmatched_path, &unmatched_exclude_path, expressions_map, elements_map);
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {
+            for child in self.children() {
+                apex::router::hydrate_child_with_parent_path(child.as_ref(), self.path(), pathname, expressions_map, elements_map);
+            }
+        }
+    };
+
+    let has_return_value = match &input.sig.output {
+        syn::ReturnType::Type(_, ty) => {
+            let type_str = quote!(#ty).to_string();
+            type_str != "()"
+        }
+        syn::ReturnType::Default => false,
+    };
+
+    let loader_data_helper = if has_return_value {
+        let client_helper_name =
+            syn::Ident::new(&format!("get_{fn_name}_loader_data"), fn_name.span());
+
+        let return_type = match &input.sig.output {
+            syn::ReturnType::Type(_, ty) => ty,
+            syn::ReturnType::Default => {
+                panic!("Route with return value must have explicit return type")
+            }
+        };
+
+        quote! {
+            pub fn #client_helper_name() -> Signal<Option<#return_type>> {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let route_name = stringify!(#fn_name);
+                    signal!(apex::init_data::get_typed_route_data::<#return_type>(route_name))
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    signal!(apex::server_context::get_server_context::<#return_type>())
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let handler_method_logic = if has_return_value && has_component {
+        let Some(component_name) = args.component.as_ref() else {
+            panic!("Route with return value must have a component");
+        };
+
+        quote! {
+            let route_data = { #fn_body };
+            let component = #component_name::builder().build();
+            let html = component.render_with_data(route_data.clone());
+
+            let route_name = stringify!(#fn_name);
+            let _ = apex::init_data::add_route_data(route_name, &route_data);
+
+            html
+        }
+    } else if has_component {
+        let Some(component_name) = args.component.as_ref() else {
+            panic!("Route with return value must have a component");
+        };
+
+        quote! {
+            { #fn_body };
+            let component = #component_name::builder().build();
+            component.render()
+        }
+    } else {
+        quote! {
+            let route_data = { #fn_body };
+            let route_name = stringify!(#fn_name);
+            let _ = apex::init_data::add_route_data(route_name, &route_data);
+
+            route_data
+        }
+    };
+
+    let path = args
+        .path
+        .as_ref()
+        .map(|p| p.value())
+        .unwrap_or_else(|| "/".to_owned());
+
+    let children_method = generate_children_method(&args);
+    let outlet_helpers = generate_outlet_helpers(fn_name, &path, &args);
+
+    quote! {
+        pub struct #route_struct_name;
+
+        impl apex::router::ApexRoute for #route_struct_name {
+            fn path(&self) -> &'static str { #path }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            fn handler(&self) -> apex::router::ApexHandler {
+                Box::new(|#params_name: std::collections::HashMap<String, String>| {
+                    Box::pin(async move {
+                        #handler_method_logic
+                    })
+                })
+            }
+
             fn hydrate_components(
                 &self,
                 pathname: &str,
@@ -99,250 +240,14 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                 expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
                 elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
             ) {
-                #[cfg(target_arch = "wasm32")]
-                {
-                    web_sys::console::log_1(&format!("Hydrating route: {}, pathname: {}", self.path(), pathname).into());
-
-                    // Check if this route matches the current pathname
-                    let matches = if self.children().is_empty() {
-                        apex::router::path_matches_pattern(self.path(), pathname)
-                    } else {
-                        apex::router::path_matches_pattern_prefix(self.path(), pathname)
-                    };
-
-                    if matches {
-                        web_sys::console::log_1(&format!("Route matched! Hydrating component").into());
-                        let mut unmatched_exclude_path = exclude_path.to_string();
-
-                        if apex::router::path_matches_pattern_prefix(self.path(), exclude_path) {
-                            unmatched_exclude_path = apex::router::get_unmatched_path(self.path(), exclude_path);
-                        } else {
-                            // Build and hydrate the component
-                            let component = #component_name::builder().build();
-                            let hydrate_fn = component.hydrate();
-                            hydrate_fn(expressions_map, elements_map);
-                        }
-
-                        web_sys::console::log_1(&format!("Unmatched exclude path: {}, exclude_path: {}, self.path: {}, pathname: {}", unmatched_exclude_path, exclude_path, self.path(), pathname).into());
-
-                        // After hydrating parent, hydrate matching child routes
-                        // Child routes will continue with the current counter values
-                        #[allow(unused_variables)]
-                        let has_children = #has_children;
-
-                        if has_children {
-                            // Calculate the unmatched portion of the path
-                            // If parent is /{name}/{age} and pathname is /john/23/calculator
-                            // We need to extract /calculator
-                            let parent_pattern = self.path();
-                            let unmatched_path = apex::router::get_unmatched_path(parent_pattern, pathname);
-
-                            web_sys::console::log_1(&format!(
-                                "Parent matched {}, passing unmatched path '{}' to children",
-                                parent_pattern, unmatched_path
-                            ).into());
-
-                            for child in self.children() {
-                                child.hydrate_components(&unmatched_path, &unmatched_exclude_path, expressions_map, elements_map);
-                            }
-                        }
-                    } else {
-                        web_sys::console::log_1(&format!("Route did not match! Not hydrating component").into());
-                    }
-                }
+                #hydrate_components_method_logic
             }
-        };
 
-        // Check if the route function returns something other than String
-        let has_return_value = match &input.sig.output {
-            syn::ReturnType::Type(_, ty) => {
-                let type_str = quote!(#ty).to_string();
-                !type_str.contains("String") && type_str != "()"
-            }
-            syn::ReturnType::Default => false,
-        };
-
-        if has_return_value {
-            // Generate route handler that sets server context and injects INIT_DATA
-            // Also generate client-side helper function
-            {
-                let path = args
-                    .path
-                    .as_ref()
-                    .map(|p| p.value())
-                    .unwrap_or_else(|| "/".to_owned());
-
-                // Generate client-side helper function name
-                let client_helper_name =
-                    syn::Ident::new(&format!("get_{fn_name}_loader_data"), fn_name.span());
-
-                // Generate outlet helpers
-                let outlet_helpers = generate_outlet_helpers(fn_name, &path, &args);
-
-                // Extract return type for the client helper
-                let return_type = match &input.sig.output {
-                    syn::ReturnType::Type(_, ty) => ty,
-                    syn::ReturnType::Default => {
-                        panic!("Route with return value must have explicit return type")
-                    }
-                };
-
-                quote! {
-                    // legacy handler fn kept for backward compatibility
-                    #[cfg(not(target_arch = "wasm32"))]
-                    #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
-                        let route_data = { #fn_body };
-                        let component = #component_name::builder().build();
-                        let html = component.render_with_data(route_data.clone());
-
-                        // Store route data in the collector instead of injecting directly
-                        let route_name = stringify!(#fn_name);
-                        let _ = apex::init_data::add_route_data(route_name, &route_data);
-
-                        html
-                    }
-
-                    // struct-based route for ApexRouter::mount_route
-                    pub struct #route_struct_name;
-
-                    impl apex::router::ApexRoute for #route_struct_name {
-                        fn path(&self) -> &'static str { #path }
-
-                        #[cfg(not(target_arch = "wasm32"))]
-                        fn handler(&self) -> apex::router::ApexHandler {
-                            Box::new(|#params_name: std::collections::HashMap<String, String>| {
-                                Box::pin(async move {
-                                    let route_data = { #fn_body };
-                                    let component = #component_name::builder().build();
-                                    let html = component.render_with_data(route_data.clone());
-
-                                    // Store route data in the collector instead of injecting directly
-                                    let route_name = stringify!(#fn_name);
-                                    let _ = apex::init_data::add_route_data(route_name, &route_data);
-
-                                    html
-                                })
-                            })
-                        }
-
-                        #hydrate_components_method
-                        #children_method
-                    }
-
-                    // Helper function for accessing loader data (works on both client and server)
-                    pub fn #client_helper_name() -> Signal<Option<#return_type>> {
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            // On client side, get data from INIT_DATA[route_name]
-                            let route_name = stringify!(#fn_name);
-                            signal!(apex::init_data::get_typed_route_data::<#return_type>(route_name))
-                        }
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            // On server side, get the data from server context
-                            signal!(apex::server_context::get_server_context::<#return_type>())
-                        }
-                    }
-
-                    // Outlet helpers for hierarchical routing
-                    #outlet_helpers
-                }
-            }
-        } else {
-            // Generate route handler without passing data to component
-            {
-                let path = args
-                    .path
-                    .as_ref()
-                    .map(|p| p.value())
-                    .unwrap_or_else(|| "/".to_owned());
-
-                // Generate outlet helpers
-                let outlet_helpers = generate_outlet_helpers(fn_name, &path, &args);
-
-                quote! {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
-                        let _result = { #fn_body };
-                        let component = #component_name::builder().build();
-                        component.render()
-                    }
-
-                    pub struct #route_struct_name;
-
-                    impl apex::router::ApexRoute for #route_struct_name {
-                        fn path(&self) -> &'static str { #path }
-
-                        #[cfg(not(target_arch = "wasm32"))]
-                        fn handler(&self) -> apex::router::ApexHandler {
-                            Box::new(|#params_name: std::collections::HashMap<String, String>| {
-                                Box::pin(async move {
-                                    let _result = { #fn_body };
-                                    let component = #component_name::builder().build();
-                                    component.render()
-                                })
-                            })
-                        }
-
-                        #hydrate_components_method
-                        #children_method
-                    }
-
-                    // Outlet helpers for hierarchical routing
-                    #outlet_helpers
-                }
-            }
+            #children_method
         }
-    } else {
-        // Generate route handler without component (just execute original logic)
-        {
-            let path = args
-                .path
-                .as_ref()
-                .map(|p| p.value())
-                .unwrap_or_else(|| "/".to_owned());
 
-            // Generate outlet helpers
-            let outlet_helpers = generate_outlet_helpers(fn_name, &path, &args);
-
-            quote! {
-                #[cfg(not(target_arch = "wasm32"))]
-                #fn_vis async fn #fn_name(#params_name: std::collections::HashMap<String, String>) -> String {
-                    #fn_body
-                }
-
-                #[cfg(not(target_arch = "wasm32"))]
-                pub struct #route_struct_name;
-
-                #[cfg(not(target_arch = "wasm32"))]
-                impl apex::router::ApexRoute for #route_struct_name {
-                    fn path(&self) -> &'static str { #path }
-                    fn handler(&self) -> apex::router::ApexHandler {
-                        Box::new(|#params_name: std::collections::HashMap<String, String>| {
-                            Box::pin(async move { { #fn_body } })
-                        })
-                    }
-
-                    fn hydrate_components(
-                        &self,
-                        pathname: &str,
-                        _exclude_path: &str,
-                        expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
-                        elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
-                    ) {
-                        // Route without component - just hydrate children if any
-                        for child in self.children() {
-                            apex::router::hydrate_child_with_parent_path(child.as_ref(), self.path(), pathname, expressions_map, elements_map);
-                        }
-                    }
-
-                    #children_method
-                }
-
-                // Outlet helpers for hierarchical routing
-                #outlet_helpers
-            }
-        }
+        #loader_data_helper
+        #outlet_helpers
     }
 }
 

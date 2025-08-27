@@ -22,8 +22,7 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
     let _slots = parse_slots(&input);
 
     // Separate regular props from server context and route_data props
-    let props: Vec<_> = all_props.iter().filter(|p| !p.is_server_context).collect();
-    let server_context_props: Vec<_> = all_props.iter().filter(|p| p.is_server_context).collect();
+    let props: Vec<_> = all_props.iter().collect();
 
     // Convert function name to PascalCase for the struct
     let struct_name = syn::Ident::new(&to_pascal_case(&fn_name.to_string()), fn_name.span());
@@ -86,18 +85,6 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         })
         .collect::<Vec<_>>();
 
-    // Generate server context bindings
-    let server_context_bindings = server_context_props
-        .iter()
-        .map(|prop| {
-            let name = &prop.name;
-            let ty = &prop.ty;
-            quote! {
-                let #name = apex::use_server_context!(#ty);
-            }
-        })
-        .collect::<Vec<_>>();
-
     // Generate builder default field values
     let builder_default_fields = props.iter().map(|prop| {
         let name = &prop.name;
@@ -140,14 +127,12 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         impl #struct_name {
             pub fn render(&self) -> String {
                 #(#prop_bindings)*
-                #(#server_context_bindings)*
                 #fn_body
             }
 
             pub fn render_with_data<T: Clone + 'static>(&self, data: T) -> String {
                 apex::server_context::set_server_context(data);
                 #(#prop_bindings)*
-                #(#server_context_bindings)*
                 #fn_body
             }
         }
@@ -156,7 +141,6 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         impl #struct_name {
             pub fn hydrate(&self) -> impl Fn(&std::collections::HashMap<String, apex::web_sys::Text>, &std::collections::HashMap<String, apex::web_sys::Element>) {
                 #(#prop_bindings)*
-                #(#server_context_bindings)*
                 #fn_body
             }
         }

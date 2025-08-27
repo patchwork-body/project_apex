@@ -23,6 +23,7 @@ pub fn add_route_data<T: serde::Serialize>(
         .lock()
         .unwrap()
         .insert(route_name.to_string(), json_value);
+
     Ok(())
 }
 

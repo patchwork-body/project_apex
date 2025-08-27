@@ -5,7 +5,6 @@ pub(crate) struct ComponentProp {
     pub name: PatIdent,
     pub ty: Type,
     pub default: Option<Expr>,
-    pub is_server_context: bool,
 }
 
 /// Parse props from function parameters that have #[prop] attribute
@@ -16,7 +15,6 @@ pub(crate) fn parse_props(input: &ItemFn) -> Vec<ComponentProp> {
         if let FnArg::Typed(pat_type) = arg {
             // Check if parameter has #[prop] or #[server_context] attribute
             let mut has_prop_attr = false;
-            let mut has_server_context_attr = false;
             let mut default_value = None;
 
             for attr in &pat_type.attrs {
@@ -55,21 +53,17 @@ pub(crate) fn parse_props(input: &ItemFn) -> Vec<ComponentProp> {
                             }
                         }
                     }
-                    "server_context" => {
-                        has_server_context_attr = true;
-                    }
                     _ => {}
                 }
             }
 
-            if has_prop_attr || has_server_context_attr {
+            if has_prop_attr {
                 // Extract the parameter name and type
                 if let Pat::Ident(pat_ident) = &*pat_type.pat {
                     props.push(ComponentProp {
                         name: pat_ident.clone(),
                         ty: (*pat_type.ty).clone(),
                         default: default_value,
-                        is_server_context: has_server_context_attr,
                     });
                 }
             }
