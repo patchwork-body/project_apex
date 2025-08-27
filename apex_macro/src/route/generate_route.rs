@@ -3,31 +3,10 @@ use quote::quote;
 use syn::{FnArg, ItemFn, Pat};
 
 use super::parse_route_args::RouteArgs;
-use crate::component::to_pascal_case::to_pascal_case;
-
-/// Generate the children method implementation for ApexRoute trait
-fn generate_children_method(args: &RouteArgs) -> proc_macro2::TokenStream {
-    if args.children.is_empty() {
-        quote! {
-            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
-                vec![]
-            }
-        }
-    } else {
-        let children_route_names = &args.children;
-        let children_inits = children_route_names.iter().map(|child| {
-            quote! {
-                Box::new(#child) as Box<dyn apex::router::ApexRoute>
-            }
-        });
-
-        quote! {
-            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
-                vec![#(#children_inits),*]
-            }
-        }
-    }
-}
+use crate::{
+    component::to_pascal_case::to_pascal_case,
+    route::generate_children_method::generate_children_method,
+};
 
 /// Generate outlet matching helper functions for server and client
 fn generate_outlet_helpers(
