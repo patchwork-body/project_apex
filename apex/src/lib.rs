@@ -12,7 +12,6 @@ pub use wasm_bindgen;
 pub use web_sys;
 
 pub mod action;
-pub mod navigation;
 pub mod router;
 pub mod server_context;
 pub mod signal;
