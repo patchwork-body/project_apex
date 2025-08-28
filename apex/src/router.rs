@@ -601,21 +601,6 @@ pub fn hydrate_child_with_parent_path(
     expressions_map: &std::collections::HashMap<String, web_sys::Text>,
     elements_map: &std::collections::HashMap<String, web_sys::Element>,
 ) {
-    // Combine parent and child paths to get the full path
-    let parent_clean = parent_path.trim_end_matches('/');
-    let child_clean = child.path().trim_start_matches('/');
-
-    let full_child_path = if parent_clean.is_empty() || parent_clean == "/" {
-        format!("/{}", child_clean)
-    } else {
-        format!("{}/{}", parent_clean, child_clean)
-    };
-
-    // Check if the full child path matches the pathname
-    if path_matches_pattern(&full_child_path, pathname) {
-        // Directly hydrate the child component
-        child.hydrate_components(pathname, "", expressions_map, elements_map);
-    }
 }
 
 /// Helper function to check if a path matches a route pattern as a prefix

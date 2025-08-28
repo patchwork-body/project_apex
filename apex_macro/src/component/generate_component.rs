@@ -129,12 +129,6 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
                 #(#prop_bindings)*
                 #fn_body
             }
-
-            pub fn render_with_data<T: Clone + 'static>(&self, data: T) -> String {
-                apex::server_context::set_server_context(data);
-                #(#prop_bindings)*
-                #fn_body
-            }
         }
 
         #[cfg(target_arch = "wasm32")]

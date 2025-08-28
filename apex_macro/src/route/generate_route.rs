@@ -112,7 +112,18 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     } else {
         quote! {
             for child in self.children() {
-                apex::router::hydrate_child_with_parent_path(child.as_ref(), self.path(), pathname, expressions_map, elements_map);
+                let parent_clean = parent_path.trim_end_matches('/');
+                let child_clean = child.path().trim_start_matches('/');
+
+                let full_child_path = if parent_clean.is_empty() || parent_clean == "/" {
+                    format!("/{}", child_clean)
+                } else {
+                    format!("{}/{}", parent_clean, child_clean)
+                };
+
+                if path_matches_pattern(&full_child_path, pathname) {
+                    child.hydrate_components(pathname, exclude_path, expressions_map, elements_map);
+                }
             }
         }
     };
@@ -155,22 +166,24 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
 
     let handler_method_logic = if has_return_value && has_component {
         let Some(component_name) = args.component.as_ref() else {
-            panic!("Route with return value must have a component");
+            panic!("Unhandled error, component name is not set");
         };
 
         quote! {
             let route_data = { #fn_body };
             let component = #component_name::builder().build();
-            let html = component.render_with_data(route_data.clone());
 
             let route_name = stringify!(#fn_name);
             let _ = apex::init_data::add_route_data(route_name, &route_data);
+            apex::server_context::set_server_context(route_data);
+
+            let html = component.render();
 
             html
         }
     } else if has_component {
         let Some(component_name) = args.component.as_ref() else {
-            panic!("Route with return value must have a component");
+            panic!("Unhandled error, component name is not set");
         };
 
         quote! {
@@ -183,6 +196,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             let route_data = { #fn_body };
             let route_name = stringify!(#fn_name);
             let _ = apex::init_data::add_route_data(route_name, &route_data);
+            apex::server_context::set_server_context(route_data);
 
             route_data
         }
