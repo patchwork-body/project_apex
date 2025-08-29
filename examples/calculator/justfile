@@ -1,0 +1,4 @@
+dev:
+	cargo build --target wasm32-unknown-unknown --bin client
+	wasm-bindgen --target web --out-dir static ../../target/wasm32-unknown-unknown/debug/client.wasm
+	cargo run --bin server
