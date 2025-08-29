@@ -3,8 +3,13 @@
 use proc_macro::TokenStream;
 use syn::{ItemFn, parse_macro_input};
 
-use crate::{component::generate_component, tmpl::parse_tmpl};
+use crate::{
+    component::generate_component,
+    route::{generate_route, parse_route_args},
+    tmpl::parse_tmpl,
+};
 
+pub(crate) mod common;
 mod component;
 mod route;
 pub(crate) mod tmpl;
@@ -24,7 +29,7 @@ pub fn component(_args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
     let item_fn = parse_macro_input!(input as ItemFn);
-    let route_args = route::parse_route_args::parse_route_args(args);
+    let route_args = parse_route_args(args);
 
-    route::generate_route::generate_route(route_args, item_fn).into()
+    generate_route(route_args, item_fn).into()
 }

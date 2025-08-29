@@ -1,55 +1,21 @@
+mod extract_params_name;
+mod generate_children_method;
+mod generate_outlet_helpers;
+mod validate_route_function;
+
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{FnArg, ItemFn, Pat};
+use syn::ItemFn;
 
 use super::parse_route_args::RouteArgs;
-use crate::{
-    component::to_pascal_case::to_pascal_case,
-    route::generate_children_method::generate_children_method,
-};
+use crate::common::to_pascal_case;
 
-/// Generate outlet matching helper functions for server and client
-fn generate_outlet_helpers(
-    fn_name: &syn::Ident,
-    route_path: &str,
-    args: &RouteArgs,
-) -> proc_macro2::TokenStream {
-    let outlet_helper_name = syn::Ident::new(&format!("{fn_name}_outlet_matcher"), fn_name.span());
+use extract_params_name::extract_params_name;
+use generate_children_method::generate_children_method;
+use generate_outlet_helpers::generate_outlet_helpers;
+use validate_route_function::validate_route_function;
 
-    if args.children.is_empty() {
-        // No children, no outlet matching needed
-        quote! {}
-    } else {
-        let children_route_names = &args.children;
-
-        quote! {
-            /// Helper function to match child routes for outlet rendering
-            /// Returns the route struct that should render in the outlet for the given path
-            pub fn #outlet_helper_name(request_path: &str) -> Option<Box<dyn apex::router::ApexRoute>> {
-                apex::router::outlet_match(#route_path, request_path, vec![
-                    #(Box::new(#children_route_names) as Box<dyn apex::router::ApexRoute>),*
-                ])
-            }
-        }
-    }
-}
-
-/// Generate a route handler function that can be used with ApexRouter
-///
-/// The macro transforms:
-/// ```rust,ignore
-/// #[route(component = HomeComponent)]
-/// fn home(params: HashMap<String, String>) -> String {
-///     // custom logic here
-/// }
-/// ```
-///
-/// Into a function that:
-/// 1. Executes the original function logic
-/// 2. Creates and renders the specified component
-/// 3. Returns the rendered HTML as a String
 pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
-    // Extract function details
     let fn_name = &input.sig.ident;
     let fn_body = &input.block;
     let route_struct_name = syn::Ident::new(
@@ -57,10 +23,8 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         fn_name.span(),
     );
 
-    // Validate function signature - should accept HashMap<String, String> params
     validate_route_function(&input);
 
-    // Extract the params parameter name from function signature
     let params_name = extract_params_name(&input);
 
     let has_children = !args.children.is_empty();
@@ -92,15 +56,8 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                         hydrate_fn(expressions_map, elements_map);
                     }
 
-                    // After hydrating parent, hydrate matching child routes
-                    // Child routes will continue with the current counter values
-                    #[allow(unused_variables)]
-                    let has_children = #has_children;
-
-                    if has_children {
-                        // Calculate the unmatched portion of the path
-                        let parent_pattern = self.path();
-                        let unmatched_path = apex::router::get_unmatched_path(parent_pattern, pathname);
+                    if #has_children {
+                        let unmatched_path = apex::router::get_unmatched_path(self.path(), pathname);
 
                         for child in self.children() {
                             child.hydrate_components(&unmatched_path, &unmatched_exclude_path, expressions_map, elements_map);
@@ -242,47 +199,4 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         #loader_data_helper
         #outlet_helpers
     }
-}
-
-/// Validate that the function has the correct signature for a route handler
-fn validate_route_function(input: &ItemFn) {
-    // Check that function has exactly one parameter of type HashMap<String, String>
-    if input.sig.inputs.len() != 1 {
-        panic!("Route functions must have exactly one parameter: params: HashMap<String, String>");
-    }
-
-    if let Some(FnArg::Typed(pat_type)) = input.sig.inputs.first() {
-        // Basic validation - could be more thorough
-        let type_str = quote!(#pat_type.ty).to_string();
-        if !type_str.contains("HashMap") {
-            panic!("Route function parameter should be HashMap<String, String>");
-        }
-    } else {
-        panic!("Route functions cannot have self parameter");
-    }
-
-    // Check return type - should return String or similar
-    match &input.sig.output {
-        syn::ReturnType::Type(_, ty) => {
-            let type_str = quote!(#ty).to_string();
-            if !type_str.contains("String") {
-                // Allow String return type for now
-                // Could be more flexible in the future
-            }
-        }
-        syn::ReturnType::Default => {
-            // Default return type is (), which is fine for routes
-        }
-    }
-}
-
-/// Extract the parameter name from the function signature
-fn extract_params_name(input: &ItemFn) -> &syn::Ident {
-    if let Some(FnArg::Typed(pat_type)) = input.sig.inputs.first() {
-        if let Pat::Ident(pat_ident) = &*pat_type.pat {
-            return &pat_ident.ident;
-        }
-    }
-
-    panic!("Could not extract parameter name from route function");
 }

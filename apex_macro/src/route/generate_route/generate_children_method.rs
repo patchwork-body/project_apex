@@ -1,6 +1,6 @@
 use quote::quote;
 
-use super::parse_route_args::RouteArgs;
+use crate::route::parse_route_args::RouteArgs;
 
 pub(crate) fn generate_children_method(args: &RouteArgs) -> proc_macro2::TokenStream {
     if args.children.is_empty() {

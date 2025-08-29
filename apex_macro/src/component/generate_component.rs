@@ -2,9 +2,9 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::ItemFn;
 
-use crate::component::{
-    parse_props::parse_props, parse_slots::parse_slots, to_pascal_case::to_pascal_case,
-    validate_component_function,
+use crate::{
+    common::to_pascal_case,
+    component::{parse_props::parse_props, parse_slots::parse_slots, validate_component_function},
 };
 
 /// Generate a component from a function
