@@ -92,8 +92,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     };
 
     let loader_data_helper = if has_return_value {
-        let client_helper_name =
-            syn::Ident::new(&format!("get_{fn_name}_loader_data"), fn_name.span());
+        let helper_name = syn::Ident::new(&format!("get_{fn_name}_loader_data"), fn_name.span());
 
         let return_type = match &input.sig.output {
             syn::ReturnType::Type(_, ty) => ty,
@@ -103,7 +102,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         };
 
         quote! {
-            pub fn #client_helper_name() -> Signal<Option<#return_type>> {
+            pub fn #helper_name() -> Signal<Option<#return_type>> {
                 #[cfg(target_arch = "wasm32")]
                 {
                     let route_name = stringify!(#fn_name);
