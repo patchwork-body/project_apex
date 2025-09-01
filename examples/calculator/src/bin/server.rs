@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use apex::router::ApexRouter;
+use apex::apex_router::ApexRouter;
 use bytes::Bytes;
 use calculator::RootPageRoute;
 use http_body_util::{BodyExt, Full};

@@ -1,7 +1,11 @@
+#![allow(missing_docs)]
+
 use matchit::{Match, Router};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+
+pub mod init_data;
 
 pub type ApexHandler = Box<
     dyn Fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
@@ -11,7 +15,7 @@ pub type ApexHandler = Box<
 pub trait ApexRoute: Send + Sync {
     fn path(&self) -> &'static str;
     fn handler(&self) -> ApexHandler {
-        Box::new(|_| Box::pin(async move { "".to_string() }))
+        Box::new(|_| Box::pin(async move { "".to_owned() }))
     }
     fn children(&self) -> Vec<Box<dyn ApexRoute>> {
         Vec::new()
@@ -50,7 +54,7 @@ impl ApexRouter {
         }
 
         // Store route metadata for hierarchical matching logic
-        self.routes.push((path.to_string(), Vec::new()));
+        self.routes.push((path.to_owned(), Vec::new()));
 
         self
     }
@@ -66,7 +70,7 @@ impl ApexRouter {
         }
 
         // Store route metadata for outlet handling
-        self.routes.push((path.to_string(), children));
+        self.routes.push((path.to_owned(), children));
 
         self
     }
@@ -79,7 +83,7 @@ impl ApexRouter {
         if parent.is_empty() {
             format!("/{child}")
         } else if child.is_empty() {
-            parent.to_string()
+            parent.to_owned()
         } else {
             format!("{parent}/{child}")
         }
@@ -134,7 +138,9 @@ impl ApexRouter {
             if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
                 // This is a parameter, it matches any value
                 continue;
-            } else if pattern_seg != path_seg {
+            }
+
+            if pattern_seg != path_seg {
                 return false;
             }
         }
@@ -151,7 +157,7 @@ impl ApexRouter {
         for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
             if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
                 let param_name = &pattern_seg[1..pattern_seg.len() - 1];
-                params.insert(param_name.to_string(), path_seg.to_string());
+                params.insert(param_name.to_owned(), (*path_seg).to_owned());
             }
         }
 
@@ -177,7 +183,7 @@ impl ApexRouter {
             let params_map: HashMap<String, String> = match_result
                 .params
                 .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .map(|(k, v)| (k.to_owned(), v.to_owned()))
                 .collect();
 
             let result = (match_result.value)(params_map).await;
@@ -274,7 +280,7 @@ impl ApexRouter {
             {
                 let params_map: HashMap<String, String> = params
                     .iter()
-                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .map(|(k, v)| (k.to_owned(), v.to_owned()))
                     .collect();
 
                 let base_result = handler(params_map).await;
@@ -433,8 +439,8 @@ impl ApexRouter {
         };
 
         // Add path to the outlet begin
-        let outlet_begin_with_path = format!("<!-- @outlet-begin:{} -->", path);
-        let outlet_end_with_path = format!("<!-- @outlet-end:{} -->", path);
+        let outlet_begin_with_path = format!("<!-- @outlet-begin:{path} -->");
+        let outlet_end_with_path = format!("<!-- @outlet-end:{path} -->");
 
         // Replace the outlet begin with the new path
         let parent_content = parent_content.replace(outlet_begin, &outlet_begin_with_path);
@@ -483,7 +489,7 @@ impl ApexRouter {
         for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
             if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
                 let param_name = &pattern_seg[1..pattern_seg.len() - 1];
-                params.insert(param_name.to_string(), path_seg.to_string());
+                params.insert(param_name.to_owned(), (*path_seg).to_owned());
             }
         }
 
@@ -495,27 +501,6 @@ impl Default for ApexRouter {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Helper function to check if a path matches a route pattern
-pub fn path_matches_pattern(pattern: &str, path: &str) -> bool {
-    let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
-    let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-
-    if pattern_segments.len() != path_segments.len() {
-        return false;
-    }
-
-    for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
-        if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
-            // Parameter segment, matches any value
-            continue;
-        } else if pattern_seg != path_seg {
-            return false;
-        }
-    }
-
-    true
 }
 
 // Get the matched portion of a path after matching a pattern
@@ -532,7 +517,7 @@ pub fn get_matched_path(pattern: &str, path: &str) -> String {
 
     for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
         if pattern_seg == path_seg {
-            matched_path.push(path_seg.to_string());
+            matched_path.push(path_seg.to_owned());
         }
     }
 
@@ -586,6 +571,29 @@ pub fn path_matches_pattern_prefix(pattern: &str, path: &str) -> bool {
             // Parameter segment, matches any value
             continue;
         } else if pattern_seg != path_seg {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Helper function to check if a path matches a route pattern
+pub fn path_matches_pattern(pattern: &str, path: &str) -> bool {
+    let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
+    let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+
+    if pattern_segments.len() != path_segments.len() {
+        return false;
+    }
+
+    for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
+        if pattern_seg.starts_with('{') && pattern_seg.ends_with('}') {
+            // Parameter segment, matches any value
+            continue;
+        }
+
+        if pattern_seg != path_seg {
             return false;
         }
     }

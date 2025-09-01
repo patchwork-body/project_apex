@@ -37,6 +37,7 @@ name = "apex"
 version = "0.1.0"
 dependencies = [
  "apex_macro",
+ "apex_router",
  "apex_utils",
  "bytes",
  "console_error_panic_hook",
@@ -47,7 +48,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "lazy_static",
- "matchit",
  "proc-macro2",
  "quote",
  "serde",
@@ -70,6 +70,7 @@ name = "apex_macro"
 version = "0.1.0"
 dependencies = [
  "apex",
+ "apex_router",
  "apex_utils",
  "js-sys",
  "lazy_static",
@@ -82,6 +83,21 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
+name = "apex_router"
+version = "0.1.0"
+dependencies = [
+ "apex_utils",
+ "js-sys",
+ "lazy_static",
+ "matchit",
+ "serde",
+ "serde_json",
+ "tokio",
+ "wasm-bindgen",
  "web-sys",
 ]
 
@@ -179,7 +195,6 @@ version = "0.1.0"
 dependencies = [
  "apex",
  "apex_components",
- "apex_macro",
  "bytes",
  "console_error_panic_hook",
  "http",
@@ -915,9 +930,9 @@ checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "matchit"
-version = "0.8.4"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+checksum = "2f926ade0c4e170215ae43342bf13b9310a437609c81f29f86c5df6657582ef9"
 
 [[package]]
 name = "md-5"

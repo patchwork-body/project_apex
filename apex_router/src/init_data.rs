@@ -22,7 +22,7 @@ pub fn add_route_data<T: serde::Serialize>(
     ROUTE_DATA_COLLECTOR
         .lock()
         .unwrap()
-        .insert(route_name.to_string(), json_value);
+        .insert(route_name.to_owned(), json_value);
 
     Ok(())
 }
@@ -46,7 +46,7 @@ pub fn generate_init_data_script() -> String {
         let json_data = serde_json::json!(data);
         format!(
             r#"<script>window.INIT_DATA = {};</script>"#,
-            serde_json::to_string(&json_data).unwrap_or_else(|_| "{}".to_string())
+            serde_json::to_string(&json_data).unwrap_or_else(|_| "{}".to_owned())
         )
     }
 }

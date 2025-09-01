@@ -5,6 +5,7 @@ use web_sys::{Comment, Element, Text};
 
 pub mod prelude;
 
+pub use apex_router;
 pub use apex_utils;
 pub use bytes;
 pub use js_sys;
@@ -12,14 +13,8 @@ pub use wasm_bindgen;
 pub use web_sys;
 
 pub mod action;
-pub mod router;
 pub mod server_context;
 pub mod signal;
-
-pub mod init_data;
-
-// Re-export main types for easy access
-pub use router::ApexRouter;
 
 pub struct Outlet {
     pub begin: Option<web_sys::Comment>,
@@ -39,7 +34,7 @@ impl Apex {
 
     pub fn hydrate<R>(&mut self, route: R)
     where
-        R: router::ApexRoute + 'static,
+        R: apex_router::ApexRoute + 'static,
     {
         let route = Rc::new(route);
         let window = web_sys::window().expect("window not found");
@@ -55,7 +50,7 @@ impl Apex {
                     web_sys::console::log_1(&format!("Navigating to: {path}").into());
 
                     let current_path = window.location().pathname().expect("pathname not found");
-                    let exclude_path = crate::router::get_matched_path(&current_path, &path);
+                    let exclude_path = apex_router::get_matched_path(&current_path, &path);
 
                     // Fetch the new page content
                     let fetch_promise =
@@ -243,7 +238,11 @@ impl Apex {
         self.hydrate_components(route, "");
     }
 
-    pub fn hydrate_components(&mut self, route: Rc<dyn router::ApexRoute>, exclude_path: &str) {
+    pub fn hydrate_components(
+        &mut self,
+        route: Rc<dyn apex_router::ApexRoute>,
+        exclude_path: &str,
+    ) {
         apex_utils::reset_counters();
         static SHOW_COMMENT: u32 = 128;
 

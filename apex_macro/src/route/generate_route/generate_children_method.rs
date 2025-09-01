@@ -5,7 +5,7 @@ use crate::route::parse_route_args::RouteArgs;
 pub(crate) fn generate_children_method(args: &RouteArgs) -> proc_macro2::TokenStream {
     if args.children.is_empty() {
         quote! {
-            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
+            fn children(&self) -> Vec<Box<dyn apex::apex_router::ApexRoute>> {
                 vec![]
             }
         }
@@ -13,12 +13,12 @@ pub(crate) fn generate_children_method(args: &RouteArgs) -> proc_macro2::TokenSt
         let children_route_names = &args.children;
         let children_inits = children_route_names.iter().map(|child| {
             quote! {
-                Box::new(#child) as Box<dyn apex::router::ApexRoute>
+                Box::new(#child) as Box<dyn apex::apex_router::ApexRoute>
             }
         });
 
         quote! {
-            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
+            fn children(&self) -> Vec<Box<dyn apex::apex_router::ApexRoute>> {
                 vec![#(#children_inits),*]
             }
         }
@@ -44,7 +44,7 @@ mod tests {
 
         let result = generate_children_method(&args);
         let expected = quote! {
-            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
+            fn children(&self) -> Vec<Box<dyn apex_router::ApexRoute>> {
                 vec![]
             }
         };
@@ -62,8 +62,8 @@ mod tests {
 
         let result = generate_children_method(&args);
         let expected = quote! {
-            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
-                vec![Box::new(HomeRoute) as Box<dyn apex::router::ApexRoute>]
+            fn children(&self) -> Vec<Box<dyn apex_router::ApexRoute>> {
+                vec![Box::new(HomeRoute) as Box<dyn apex_router::ApexRoute>]
             }
         };
 
@@ -84,11 +84,11 @@ mod tests {
 
         let result = generate_children_method(&args);
         let expected = quote! {
-            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
+            fn children(&self) -> Vec<Box<dyn apex_router::ApexRoute>> {
                 vec![
-                    Box::new(HomeRoute) as Box<dyn apex::router::ApexRoute>,
-                    Box::new(AboutRoute) as Box<dyn apex::router::ApexRoute>,
-                    Box::new(ContactRoute) as Box<dyn apex::router::ApexRoute>
+                    Box::new(HomeRoute) as Box<dyn apex_router::ApexRoute>,
+                    Box::new(AboutRoute) as Box<dyn apex_router::ApexRoute>,
+                    Box::new(ContactRoute) as Box<dyn apex_router::ApexRoute>
                 ]
             }
         };
@@ -106,8 +106,8 @@ mod tests {
 
         let result = generate_children_method(&args);
         let expected = quote! {
-            fn children(&self) -> Vec<Box<dyn apex::router::ApexRoute>> {
-                vec![Box::new(ChildRoute) as Box<dyn apex::router::ApexRoute>]
+            fn children(&self) -> Vec<Box<dyn apex_router::ApexRoute>> {
+                vec![Box::new(ChildRoute) as Box<dyn apex_router::ApexRoute>]
             }
         };
 

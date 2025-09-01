@@ -16,8 +16,8 @@ proc-macro2 = "^1.0"
 quote = "^1.0"
 syn = { version = "^2.0", features = ["full"] }
 apex_macro = { path = "../apex_macro" }
+apex_router = { path = "../apex_router" }
 apex_utils = { path = "../apex_utils" }
-matchit = "0.8"
 
 # WASM-side only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
