@@ -3,23 +3,16 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-/// Public handler type used by routes
 pub type ApexHandler = Box<
     dyn Fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
 >;
 
 /// Trait implemented by macro-generated route structs
 pub trait ApexRoute: Send + Sync {
-    /// Static path for this route (e.g., "/users/:id")
     fn path(&self) -> &'static str;
-    /// Handler function invoked by the router
     fn handler(&self) -> ApexHandler {
         Box::new(|_| Box::pin(async move { "".to_string() }))
     }
-    fn chunk_handler(&self) -> ApexHandler {
-        Box::new(|_| Box::pin(async move { "".to_string() }))
-    }
-    /// Children routes for nested routing
     fn children(&self) -> Vec<Box<dyn ApexRoute>> {
         Vec::new()
     }
@@ -101,38 +94,15 @@ impl ApexRouter {
     pub async fn handle_request(&self, path: &str, query: &str) -> Option<String> {
         apex_utils::reset_counters();
 
-        let segments: Vec<&str> = path
-            .trim_start_matches('/')
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
-
-        let exclude_param = query
+        let exclude_path = query
             .split('&')
             .find(|s| s.starts_with("exclude="))
             .and_then(|s| s.split('=').nth(1))
             .unwrap_or("")
             .replace("%2F", "/"); // Handle URL-encoded slashes
 
-        let exclude_segments: Vec<&str> = exclude_param
-            .trim_start_matches('/') // Remove leading slash
-            .trim_end_matches('/') // Remove trailing slash
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
-
-        // Debug logging for exclude segments functionality
-        if !exclude_segments.is_empty() {
-            println!(
-                "Exclude segments request: path={}, exclude={:?}",
-                path, exclude_segments
-            );
-        }
-
         // Try to find a matching route hierarchy
-        let html = self
-            .find_hierarchical_match(&segments, &exclude_segments)
-            .await?;
+        let html = self.find_hierarchical_match(path, &exclude_path).await?;
 
         // Inject collected INIT_DATA script if any routes had data
         #[cfg(not(target_arch = "wasm32"))]
@@ -189,14 +159,21 @@ impl ApexRouter {
     }
 
     /// Find hierarchical match starting from root and traversing down
-    async fn find_hierarchical_match(
-        &self,
-        segments: &[&str],
-        exclude_segments: &[&str],
-    ) -> Option<String> {
-        // Try to match the full path first to find the correct route structure
-        let full_path = format!("/{}", segments.join("/"));
-        if let Ok(match_result) = self.router.at(&full_path) {
+    async fn find_hierarchical_match(&self, path: &str, exclude_path: &str) -> Option<String> {
+        let segments: Vec<&str> = path
+            .trim_start_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let exclude_segments: Vec<&str> = exclude_path
+            .trim_start_matches('/')
+            .trim_end_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if let Ok(match_result) = self.router.at(path) {
             let params_map: HashMap<String, String> = match_result
                 .params
                 .iter()
@@ -238,14 +215,14 @@ impl ApexRouter {
                 }
             }
 
-            if let Some(result) = self.match_route_recursively("/", segments).await {
+            if let Some(result) = self.match_route_recursively("/", &segments).await {
                 return Some(result);
             }
         }
 
         // Handle empty segments (root path) first
         if segments.is_empty()
-            && let Some(result) = self.match_route_recursively("/", segments).await
+            && let Some(result) = self.match_route_recursively("/", &segments).await
         {
             return Some(result);
         }
@@ -272,7 +249,7 @@ impl ApexRouter {
             let is_hierarchical_path = segments.len() > 1;
 
             if (has_children || is_hierarchical_path || has_nested_routes)
-                && let Some(result) = self.match_route_recursively("/", segments).await
+                && let Some(result) = self.match_route_recursively("/", &segments).await
             {
                 return Some(result);
             }
@@ -541,6 +518,27 @@ pub fn path_matches_pattern(pattern: &str, path: &str) -> bool {
     true
 }
 
+// Get the matched portion of a path after matching a pattern
+// For example: pattern="/{name}/{age}", path="/john/23/calculator" returns "/john/23"
+pub fn get_matched_path(pattern: &str, path: &str) -> String {
+    let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
+    let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+
+    if path_segments.len() < pattern_segments.len() {
+        return String::from("/");
+    }
+
+    let mut matched_path = vec![];
+
+    for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
+        if pattern_seg == path_seg {
+            matched_path.push(path_seg.to_string());
+        }
+    }
+
+    format!("/{}", matched_path.join("/"))
+}
+
 /// Get the unmatched portion of a path after matching a pattern
 /// For example: pattern="/{name}/{age}", path="/john/23/calculator" returns "/calculator"
 pub fn get_unmatched_path(pattern: &str, path: &str) -> String {
@@ -569,38 +567,6 @@ pub fn get_unmatched_path(pattern: &str, path: &str) -> String {
     } else {
         format!("/{}", remaining_segments.join("/"))
     }
-}
-
-// Get the matched portion of a path after matching a pattern
-// For example: pattern="/{name}/{age}", path="/john/23/calculator" returns "/john/23"
-pub fn get_matched_path(pattern: &str, path: &str) -> String {
-    let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
-    let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-
-    if path_segments.len() < pattern_segments.len() {
-        return String::from("/");
-    }
-
-    let mut matched_path = vec![];
-
-    for (pattern_seg, path_seg) in pattern_segments.iter().zip(path_segments.iter()) {
-        if pattern_seg == path_seg {
-            matched_path.push(path_seg.to_string());
-        }
-    }
-
-    format!("/{}", matched_path.join("/"))
-}
-
-/// Helper function to hydrate child routes with parent path context
-/// This combines the parent path with child path to check against the full pathname
-pub fn hydrate_child_with_parent_path(
-    child: &dyn ApexRoute,
-    parent_path: &str,
-    pathname: &str,
-    expressions_map: &std::collections::HashMap<String, web_sys::Text>,
-    elements_map: &std::collections::HashMap<String, web_sys::Element>,
-) {
 }
 
 /// Helper function to check if a path matches a route pattern as a prefix
