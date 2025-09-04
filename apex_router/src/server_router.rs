@@ -53,7 +53,7 @@ pub trait ApexServerRoute {
 struct RouteChain {
     /// Optional chain of parent paths leading to this route.
     /// Used for hierarchical route resolution and outlet rendering.
-    parent_path: Option<Vec<String>>,
+    parent_pattern: Option<Vec<String>>,
     /// The handler function that processes requests for this route.
     handler: ApexServerHandler,
 }
@@ -61,7 +61,7 @@ struct RouteChain {
 impl std::fmt::Debug for RouteChain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RouteChain")
-            .field("parent_path", &self.parent_path)
+            .field("parent_path", &self.parent_pattern)
             .field("handler", &"<ApexServerHandler>")
             .finish()
     }
@@ -132,18 +132,22 @@ impl ApexServerRouter {
     /// # Panics
     ///
     /// Panics if a route path conflicts with an already registered route.
-    pub fn mount_route(&mut self, route: &dyn ApexServerRoute, parent_path: Option<Vec<String>>) {
+    pub fn mount_route(
+        &mut self,
+        route: &dyn ApexServerRoute,
+        parent_pattern: Option<Vec<String>>,
+    ) {
         let path = route.path();
 
         let handler = route.handler();
         let children = route.children();
 
         let route_chain = RouteChain {
-            parent_path: parent_path.clone(),
+            parent_pattern: parent_pattern.clone(),
             handler,
         };
 
-        let mut parent_path = parent_path.unwrap_or_default();
+        let mut parent_path = parent_pattern.unwrap_or_default();
         let mut route_path = String::new();
 
         for part in parent_path.iter() {
@@ -190,9 +194,12 @@ impl ApexServerRouter {
         if let Ok(route_match) = self.router.at(path) {
             let mut html = String::new();
 
-            if let Some(parent_path_chain) = route_match.value.parent_path.as_ref() {
-                for parent_path in parent_path_chain.iter() {
-                    if let Ok(parent_route_match) = self.router.at(parent_path) {
+            if let Some(parent_patterns_chain) = route_match.value.parent_pattern.as_ref() {
+                for parent_pattern in parent_patterns_chain.iter() {
+                    if let Ok(parent_route_match) = self
+                        .router
+                        .at(&Self::get_matched_path(parent_pattern, path))
+                    {
                         self.update_html(parent_route_match, &mut html).await;
                     }
                 }
@@ -218,6 +225,7 @@ impl ApexServerRouter {
     /// * `html` - Mutable reference to the HTML response being built
     async fn update_html(&self, route_match: Match<'_, '_, &RouteChain>, html: &mut String) {
         let handler = route_match.value.handler.as_ref();
+
         let params_map: HashMap<String, String> = route_match
             .params
             .iter()
@@ -226,10 +234,12 @@ impl ApexServerRouter {
 
         let parent_path = route_match
             .value
-            .parent_path
+            .parent_pattern
             .clone()
             .unwrap_or_default()
             .join("");
+
+        println!("params map: {params_map:?}");
 
         let child_html = handler(params_map).await;
 
@@ -291,5 +301,25 @@ impl ApexServerRouter {
         };
 
         parent_content.replace_range(start..end, child_content);
+    }
+
+    // Get the matched portion of a path after matching a pattern
+    // For example: pattern="/{name}/{age}", path="/john/23/calculator" returns "/john/23"
+    fn get_matched_path(pattern: &str, path: &str) -> String {
+        let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
+        let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+
+        if path_segments.len() < pattern_segments.len() {
+            return String::from("/");
+        }
+
+        // Take only the number of segments that match the pattern length
+        let matched_segments = &path_segments[..pattern_segments.len()];
+
+        if matched_segments.is_empty() {
+            String::from("/")
+        } else {
+            format!("/{}", matched_segments.join("/"))
+        }
     }
 }
