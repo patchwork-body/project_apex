@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use apex::apex_router::ApexRouter;
+use apex::apex_router::ApexServerRouter;
 use bytes::Bytes;
 use calculator::RootPageRoute;
 use http_body_util::{BodyExt, Full};
@@ -65,7 +65,7 @@ async fn serve_static(path: &str) -> Result<Response<BoxBody>, hyper::Error> {
 
 async fn handle_request(
     req: Request<IncomingBody>,
-    apex_router: Arc<ApexRouter>,
+    apex_router: Arc<ApexServerRouter>,
 ) -> Result<Response<BoxBody>, hyper::Error> {
     let path = req.uri().path();
     let query = req.uri().query().unwrap_or("");
@@ -90,7 +90,7 @@ async fn handle_request(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let apex_router = Arc::new(ApexRouter::new().mount_route(RootPageRoute));
+    let router = Arc::new(ApexServerRouter::new(&RootPageRoute));
 
     let listener = TcpListener::bind("0.0.0.0:9999").await?;
     println!("Server running on http://0.0.0.0:9999");
@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
-        let apex_router = Arc::clone(&apex_router);
+        let apex_router = Arc::clone(&router);
 
         tokio::task::spawn(async move {
             let service = service_fn(move |req| {

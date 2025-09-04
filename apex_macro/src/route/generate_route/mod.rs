@@ -28,6 +28,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     let has_children = !args.children.is_empty();
     let has_component = args.component.is_some();
 
+    #[allow(unused_variables)]
     let hydrate_components_method_logic = if has_component {
         let Some(component_name) = args.component.as_ref() else {
             panic!("Route with return value must have a component");
@@ -36,18 +37,17 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         quote! {
             #[cfg(target_arch = "wasm32")]
             {
-                // Check if this route matches the current pathname
                 let matches = if self.children().is_empty() {
-                    apex::apex_router::path_matches_pattern(self.path(), pathname)
+                    apex::apex_router::path_matches_pattern_optimized(self.path(), pathname)
                 } else {
-                    apex::apex_router::path_matches_pattern_prefix(self.path(), pathname)
+                    apex::apex_router::path_matches_pattern_prefix_optimized(self.path(), pathname)
                 };
 
                 if matches {
                     let mut unmatched_exclude_path = exclude_path.to_string();
 
-                    if apex::apex_router::path_matches_pattern_prefix(self.path(), exclude_path) {
-                        unmatched_exclude_path = apex::apex_router::get_unmatched_path(self.path(), exclude_path);
+                    if apex::apex_router::path_matches_pattern_prefix_optimized(self.path(), exclude_path) {
+                        unmatched_exclude_path = apex::apex_router::get_unmatched_path_optimized(self.path(), exclude_path);
                     } else {
                         let component = #component_name::builder().build();
                         let hydrate_fn = component.hydrate();
@@ -55,7 +55,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                     }
 
                     if #has_children {
-                        let unmatched_path = apex::apex_router::get_unmatched_path(self.path(), pathname);
+                        let unmatched_path = apex::apex_router::get_unmatched_path_optimized(self.path(), pathname);
 
                         for child in self.children() {
                             child.hydrate_components(&unmatched_path, &unmatched_exclude_path, expressions_map, elements_map);
@@ -68,7 +68,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         quote! {
             for child in self.children() {
                 let parent_clean = parent_path.trim_end_matches('/');
-                let child_clean = child.path().trim_start_matches('/');
+                let child_clean = <dyn apex::apex_router::ApexBaseRoute>::path(child.as_ref()).trim_start_matches('/');
 
                 let full_child_path = if parent_clean.is_empty() || parent_clean == "/" {
                     format!("/{}", child_clean)
@@ -76,8 +76,8 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                     format!("{}/{}", parent_clean, child_clean)
                 };
 
-                if path_matches_pattern(&full_child_path, pathname) {
-                    child.hydrate_components(pathname, exclude_path, expressions_map, elements_map);
+                if apex::apex_router::path_matches_pattern_optimized(&full_child_path, pathname) {
+                    <dyn apex::apex_router::ApexBaseRoute>::hydrate_components(child.as_ref(), pathname, exclude_path, expressions_map, elements_map);
                 }
             }
         }
@@ -162,15 +162,27 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         .map(|p| p.value())
         .unwrap_or_else(|| "/".to_owned());
 
-    let children_method = generate_children_method(&args);
+    let server_children_method =
+        generate_children_method(&args, quote!(apex::apex_router::ApexServerRoute));
 
-    quote! {
+    let client_children_method =
+        generate_children_method(&args, quote!(apex::apex_router::ApexClientRoute));
+
+    let server_route = quote! {
+        #[cfg(not(target_arch = "wasm32"))]
         pub struct #route_struct_name;
 
-        impl apex::apex_router::ApexRoute for #route_struct_name {
+        #[cfg(not(target_arch = "wasm32"))]
+        impl #route_struct_name {
+            pub fn new() -> Self {
+                Self
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        impl apex::apex_router::ApexServerRoute for #route_struct_name {
             fn path(&self) -> &'static str { #path }
 
-            #[cfg(not(target_arch = "wasm32"))]
             fn handler(&self) -> apex::apex_router::ApexHandler {
                 Box::new(|#params_name: std::collections::HashMap<String, String>| {
                     Box::pin(async move {
@@ -178,6 +190,25 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                     })
                 })
             }
+
+            #server_children_method
+        }
+    };
+
+    let client_route = quote! {
+        #[cfg(target_arch = "wasm32")]
+        pub struct #route_struct_name;
+
+        #[cfg(target_arch = "wasm32")]
+        impl #route_struct_name {
+            pub fn new() -> Self {
+                Self
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        impl apex::apex_router::ApexClientRoute for #route_struct_name {
+            fn path(&self) -> &'static str { #path }
 
             fn hydrate_components(
                 &self,
@@ -189,9 +220,13 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
                 #hydrate_components_method_logic
             }
 
-            #children_method
+            #client_children_method
         }
+    };
 
+    quote! {
+        #server_route
+        #client_route
         #loader_data_helper
     }
 }

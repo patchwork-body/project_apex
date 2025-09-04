@@ -1,42 +1,70 @@
-#![allow(missing_docs)]
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
-use wasm_bindgen::{JsCast, prelude::Closure};
-use web_sys::{Comment, Element, Text};
+use lazy_static::lazy_static;
+use matchit::Router;
+use std::{cell::RefCell, collections::HashMap, pin::Pin};
+use std::{rc::Rc, sync::Mutex};
+use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::Closure;
 
-pub mod prelude;
+use crate::get_matched_path;
 
-pub use apex_router;
-pub use apex_utils;
-pub use bytes;
-pub use js_sys;
-pub use wasm_bindgen;
-pub use web_sys;
+lazy_static! {
+    static ref GLOBAL_CLIENT_ROUTER: Mutex<Router<String>> = Mutex::new(Router::new());
+}
 
-pub mod action;
-pub mod server_context;
-pub mod signal;
+pub type ApexClientHandler = Box<
+    dyn Fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
+>;
+
+pub trait ApexClientRoute {
+    fn path(&self) -> &'static str {
+        "/"
+    }
+    fn hydrate_components(
+        &self,
+        pathname: &str,
+        exclude_path: &str,
+        expressions_map: &HashMap<String, web_sys::Text>,
+        elements_map: &HashMap<String, web_sys::Element>,
+    );
+    fn children(&self) -> Vec<Box<dyn ApexClientRoute>> {
+        Vec::new()
+    }
+}
 
 pub struct Outlet {
     pub begin: Option<web_sys::Comment>,
     pub end: Option<web_sys::Comment>,
 }
 
-pub struct Apex {
-    pub outlets: Rc<RefCell<HashMap<String, Outlet>>>,
+pub struct ApexClientRouter {
+    router: Router<String>,
+    outlets: Rc<RefCell<HashMap<String, Outlet>>>,
 }
 
-impl Apex {
+impl ApexClientRouter {
     pub fn new() -> Self {
         Self {
+            router: Router::new(),
             outlets: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
-    pub fn hydrate<R>(&mut self, route: R)
-    where
-        R: apex_router::ApexClientRoute + 'static,
-    {
-        let route = Rc::new(route);
+    pub fn mount_route(&mut self, route: &dyn ApexClientRoute) {
+        let path = route.path();
+        let children = route.children();
+
+        if let Err(e) = self.router.insert(path, path.to_owned()) {
+            panic!("Failed to insert route '{path}': {e}");
+        }
+
+        for child in children.iter() {
+            self.mount_route(child.as_ref());
+        }
+
+        self.hydrate(route);
+    }
+
+    pub fn hydrate(&mut self, route: &dyn ApexClientRoute) {
         let window = web_sys::window().expect("window not found");
         let document = window.document().expect("document not found");
 
@@ -50,7 +78,7 @@ impl Apex {
                     web_sys::console::log_1(&format!("Navigating to: {path}").into());
 
                     let current_path = window.location().pathname().expect("pathname not found");
-                    let exclude_path = apex_router::get_matched_path(&current_path, &path);
+                    let exclude_path = get_matched_path(&current_path, &path);
 
                     // Fetch the new page content
                     let fetch_promise =
@@ -217,8 +245,8 @@ impl Apex {
                         }
                     }
 
-                    let mut apex = Apex::new();
-                    apex.hydrate_components(route.clone(), &outlet_key);
+                    // let mut apex = Apex::new();
+                    // apex.hydrate_components(route.clone(), &outlet_key);
                 }
             }) as Box<dyn FnMut(_)>)
         };
@@ -240,11 +268,7 @@ impl Apex {
         self.hydrate_components(route, "");
     }
 
-    pub fn hydrate_components(
-        &mut self,
-        route: Rc<dyn apex_router::ApexClientRoute>,
-        exclude_path: &str,
-    ) {
+    pub fn hydrate_components(&mut self, route: &dyn ApexClientRoute, exclude_path: &str) {
         apex_utils::reset_counters();
         static SHOW_COMMENT: u32 = 128;
 
@@ -263,9 +287,9 @@ impl Apex {
         let mut nodes_to_remove = Vec::new();
 
         while let Ok(Some(node)) = tree_walker.next_node() {
-            if let Some(comment) = node.dyn_ref::<Comment>() {
+            if let Some(comment) = node.dyn_ref::<web_sys::Comment>() {
                 let data = comment.data();
-                let parts: Vec<String> = data.split(":").map(|s| s.trim().to_string()).collect();
+                let parts: Vec<String> = data.split(":").map(|s| s.trim().to_owned()).collect();
 
                 if parts.len() < 2 {
                     continue;
@@ -279,23 +303,23 @@ impl Apex {
                         continue;
                     };
 
-                    if let Some(text_node) = next_node.dyn_ref::<Text>() {
+                    if let Some(text_node) = next_node.dyn_ref::<web_sys::Text>() {
                         expressions_map.insert(comment_id.clone(), text_node.clone());
 
                         let Some(next_node) = next_node.next_sibling() else {
                             continue;
                         };
 
-                        let Some(end_comment) = next_node.dyn_ref::<Comment>() else {
+                        let Some(end_comment) = next_node.dyn_ref::<web_sys::Comment>() else {
                             continue;
                         };
 
                         nodes_to_remove.push(comment.clone());
                         nodes_to_remove.push(end_comment.clone());
-                    } else if let Some(end_comment) = next_node.dyn_ref::<Comment>() {
+                    } else if let Some(end_comment) = next_node.dyn_ref::<web_sys::Comment>() {
                         let data = end_comment.data();
                         let parts: Vec<String> =
-                            data.split(":").map(|s| s.trim().to_string()).collect();
+                            data.split(":").map(|s| s.trim().to_owned()).collect();
 
                         if parts.len() < 2 {
                             continue;
@@ -318,8 +342,6 @@ impl Apex {
 
                             nodes_to_remove.push(comment.clone());
                             nodes_to_remove.push(end_comment.clone());
-
-                            continue;
                         }
                     }
                 } else if comment_type == "@element" {
@@ -328,7 +350,7 @@ impl Apex {
                     };
 
                     let element_node = next_node
-                        .dyn_ref::<Element>()
+                        .dyn_ref::<web_sys::Element>()
                         .expect("element node not found");
 
                     elements_map.insert(comment_id.clone(), element_node.clone());
@@ -360,8 +382,94 @@ impl Apex {
     }
 }
 
-impl Default for Apex {
-    fn default() -> Self {
-        Self::new()
+/// Register a route pattern with the global client router
+/// This should be called during application initialization for each route
+pub fn register_client_route(pattern: &str) {
+    let mut router = GLOBAL_CLIENT_ROUTER.lock().unwrap();
+    // Use the pattern itself as the value for identification
+    if let Err(e) = router.insert(pattern, pattern.to_string()) {
+        // Log the error but don't panic - duplicate routes might be OK
+        web_sys::console::warn_2(
+            &format!("Failed to register client route '{}': {}", pattern, e).into(),
+            &wasm_bindgen::JsValue::NULL,
+        );
+    }
+}
+
+/// Check if a path matches any registered route pattern using the global router
+/// Returns the matched pattern if found
+pub fn path_matches_with_router(path: &str) -> Option<String> {
+    let router = GLOBAL_CLIENT_ROUTER.lock().unwrap();
+    match router.at(path) {
+        Ok(matched) => Some(matched.value.clone()),
+        Err(_) => None,
+    }
+}
+
+/// Check if a path matches a specific pattern as a prefix using the global router
+pub fn path_matches_prefix_with_router(pattern: &str, path: &str) -> bool {
+    let router = GLOBAL_CLIENT_ROUTER.lock().unwrap();
+
+    // First try exact match
+    if let Ok(matched) = router.at(path) {
+        return matched.value == pattern;
+    }
+
+    // For prefix matching, we need to check if the path starts with this pattern
+    // by trying to match progressively shorter paths
+    let path_segments: Vec<&str> = path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let pattern_segments: Vec<&str> = pattern
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // Path must have at least as many segments as the pattern for prefix matching
+    if path_segments.len() < pattern_segments.len() {
+        return false;
+    }
+
+    // Build a test path with the same number of segments as the pattern
+    if pattern_segments.is_empty() {
+        return pattern == "/" || pattern.is_empty();
+    }
+
+    let test_path = format!("/{}", path_segments[..pattern_segments.len()].join("/"));
+
+    if let Ok(matched) = router.at(&test_path) {
+        matched.value == pattern
+    } else {
+        false
+    }
+}
+
+/// Get the unmatched portion of a path after a pattern match
+pub fn get_unmatched_path_after_router_match(pattern: &str, path: &str) -> String {
+    let pattern_segments: Vec<&str> = pattern
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let path_segments: Vec<&str> = path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if path_segments.len() <= pattern_segments.len() {
+        return String::new();
+    }
+
+    let remaining_segments = &path_segments[pattern_segments.len()..];
+    if remaining_segments.is_empty() {
+        String::new()
+    } else {
+        format!("/{}", remaining_segments.join("/"))
     }
 }

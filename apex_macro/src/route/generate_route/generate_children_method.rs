@@ -2,25 +2,20 @@ use quote::quote;
 
 use crate::route::parse_route_args::RouteArgs;
 
-pub(crate) fn generate_children_method(args: &RouteArgs) -> proc_macro2::TokenStream {
-    if args.children.is_empty() {
+pub(crate) fn generate_children_method<RouteTrait: quote::ToTokens>(
+    args: &RouteArgs,
+    route_trait_type: RouteTrait,
+) -> proc_macro2::TokenStream {
+    let children_route_names = &args.children;
+    let children_inits = children_route_names.iter().map(|child| {
         quote! {
-            fn children(&self) -> Vec<Box<dyn apex::apex_router::ApexRoute>> {
-                vec![]
-            }
+            Box::new(#child::new()) as Box<dyn #route_trait_type>
         }
-    } else {
-        let children_route_names = &args.children;
-        let children_inits = children_route_names.iter().map(|child| {
-            quote! {
-                Box::new(#child) as Box<dyn apex::apex_router::ApexRoute>
-            }
-        });
+    });
 
-        quote! {
-            fn children(&self) -> Vec<Box<dyn apex::apex_router::ApexRoute>> {
-                vec![#(#children_inits),*]
-            }
+    quote! {
+        fn children(&self) -> Vec<Box<dyn #route_trait_type>> {
+            vec![#(#children_inits),*]
         }
     }
 }
@@ -42,9 +37,9 @@ mod tests {
             children: vec![],
         };
 
-        let result = generate_children_method(&args);
+        let result = generate_children_method(&args, quote!(apex::apex_router::ApexRoute));
         let expected = quote! {
-            fn children(&self) -> Vec<Box<dyn apex_router::ApexRoute>> {
+            fn children(&self) -> Vec<Box<dyn apex::apex_router::ApexRoute>> {
                 vec![]
             }
         };
@@ -60,10 +55,10 @@ mod tests {
             children: vec![create_ident("HomeRoute")],
         };
 
-        let result = generate_children_method(&args);
+        let result = generate_children_method(&args, quote!(apex::apex_router::ApexRoute));
         let expected = quote! {
-            fn children(&self) -> Vec<Box<dyn apex_router::ApexRoute>> {
-                vec![Box::new(HomeRoute) as Box<dyn apex_router::ApexRoute>]
+            fn children(&self) -> Vec<Box<dyn apex::apex_router::ApexRoute>> {
+                vec![Box::new(HomeRoute::new()) as Box<dyn apex::apex_router::ApexRoute>]
             }
         };
 
@@ -82,13 +77,13 @@ mod tests {
             ],
         };
 
-        let result = generate_children_method(&args);
+        let result = generate_children_method(&args, quote!(apex::apex_router::ApexRoute));
         let expected = quote! {
-            fn children(&self) -> Vec<Box<dyn apex_router::ApexRoute>> {
+            fn children(&self) -> Vec<Box<dyn apex::apex_router::ApexRoute>> {
                 vec![
-                    Box::new(HomeRoute) as Box<dyn apex_router::ApexRoute>,
-                    Box::new(AboutRoute) as Box<dyn apex_router::ApexRoute>,
-                    Box::new(ContactRoute) as Box<dyn apex_router::ApexRoute>
+                    Box::new(HomeRoute::new()) as Box<dyn apex::apex_router::ApexRoute>,
+                    Box::new(AboutRoute::new()) as Box<dyn apex::apex_router::ApexRoute>,
+                    Box::new(ContactRoute::new()) as Box<dyn apex::apex_router::ApexRoute>
                 ]
             }
         };
@@ -104,10 +99,10 @@ mod tests {
             children: vec![create_ident("ChildRoute")],
         };
 
-        let result = generate_children_method(&args);
+        let result = generate_children_method(&args, quote!(apex::apex_router::ApexRoute));
         let expected = quote! {
-            fn children(&self) -> Vec<Box<dyn apex_router::ApexRoute>> {
-                vec![Box::new(ChildRoute) as Box<dyn apex_router::ApexRoute>]
+            fn children(&self) -> Vec<Box<dyn apex::apex_router::ApexRoute>> {
+                vec![Box::new(ChildRoute::new()) as Box<dyn apex::apex_router::ApexRoute>]
             }
         };
 
@@ -124,7 +119,8 @@ mod tests {
             children: vec![],
         };
 
-        let result = generate_children_method(&empty_args);
+        let result =
+            generate_children_method(&empty_args, quote!(apex::apex_router::ApexServerRoute));
 
         // This will panic if the generated code is not valid Rust
         let _: syn::ItemFn =
@@ -136,7 +132,7 @@ mod tests {
             children: vec![create_ident("TestRoute")],
         };
 
-        let result = generate_children_method(&args);
+        let result = generate_children_method(&args, quote!(apex::apex_router::ApexServerRoute));
         let _: syn::ItemFn = syn::parse2(result).expect("Generated code should be valid Rust");
     }
 
@@ -148,7 +144,7 @@ mod tests {
             children: vec![create_ident("SomeRoute")],
         };
 
-        let result = generate_children_method(&args);
+        let result = generate_children_method(&args, quote!(apex::apex_router::ApexRoute));
 
         // Parse the generated code and verify the method signature
         let parsed: syn::ItemFn = syn::parse2(result).expect("Should parse as function");
@@ -159,7 +155,7 @@ mod tests {
         // Check return type
         if let syn::ReturnType::Type(_, ty) = &parsed.sig.output {
             let type_str = quote!(#ty).to_string();
-            assert!(type_str.contains("Vec < Box < dyn apex :: router :: ApexRoute > >"));
+            assert!(type_str.contains("Vec < Box < dyn apex :: apex_router :: ApexRoute > >"));
         } else {
             panic!("Expected return type");
         }

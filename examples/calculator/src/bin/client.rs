@@ -5,7 +5,7 @@ fn main() {
     {
         use calculator::RootPageRoute;
 
-        let mut apex = apex::Apex::new();
-        apex.hydrate(RootPageRoute);
+        //     let mut router = apex::apex_router::ApexClientRouter::new();
+        //     router.mount_route(&RootPageRoute);
     }
 }
