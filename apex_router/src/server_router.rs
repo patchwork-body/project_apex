@@ -10,7 +10,7 @@ use std::{collections::HashMap, future::Future, pin::Pin};
 ///
 /// A server handler is a boxed closure that takes route parameters as a HashMap
 /// and returns a pinned future that resolves to an HTML string response.
-type ApexServerHandler = Box<
+pub type ApexServerHandler = Box<
     dyn Fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
 >;
 

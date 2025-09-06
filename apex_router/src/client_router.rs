@@ -1,28 +1,17 @@
-use lazy_static::lazy_static;
+#![allow(missing_docs)]
+
 use matchit::Router;
-use std::{cell::RefCell, collections::HashMap, pin::Pin};
-use std::{rc::Rc, sync::Mutex};
+use std::rc::Rc;
+use std::{cell::RefCell, collections::HashMap, fmt};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
-
-use crate::get_matched_path;
-
-lazy_static! {
-    static ref GLOBAL_CLIENT_ROUTER: Mutex<Router<String>> = Mutex::new(Router::new());
-}
-
-pub type ApexClientHandler = Box<
-    dyn Fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
->;
 
 pub trait ApexClientRoute {
     fn path(&self) -> &'static str {
         "/"
     }
-    fn hydrate_components(
+    fn hydrate_component(
         &self,
-        pathname: &str,
-        exclude_path: &str,
         expressions_map: &HashMap<String, web_sys::Text>,
         elements_map: &HashMap<String, web_sys::Element>,
     );
@@ -31,42 +20,156 @@ pub trait ApexClientRoute {
     }
 }
 
-pub struct Outlet {
+struct RouteChain {
+    parent_pattern: Option<Vec<String>>,
+    route: Box<dyn ApexClientRoute>,
+}
+
+struct Outlet {
     pub begin: Option<web_sys::Comment>,
     pub end: Option<web_sys::Comment>,
 }
 
 pub struct ApexClientRouter {
-    router: Router<String>,
+    router: Router<RouteChain>,
     outlets: Rc<RefCell<HashMap<String, Outlet>>>,
 }
 
 impl ApexClientRouter {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(route: Box<dyn ApexClientRoute>) -> Self {
+        let mut r = Self {
             router: Router::new(),
             outlets: Rc::new(RefCell::new(HashMap::new())),
-        }
+        };
+
+        r.mount_root_route(route);
+
+        r
     }
 
-    pub fn mount_route(&mut self, route: &dyn ApexClientRoute) {
+    fn mount_root_route(&mut self, route: Box<dyn ApexClientRoute>) {
+        self.mount_route(route, None);
+        self.init();
+    }
+
+    fn mount_route(
+        &mut self,
+        route: Box<dyn ApexClientRoute>,
+        parent_pattern: Option<Vec<String>>,
+    ) {
         let path = route.path();
         let children = route.children();
 
-        if let Err(e) = self.router.insert(path, path.to_owned()) {
+        let route_chain = RouteChain {
+            parent_pattern: parent_pattern.clone(),
+            route,
+        };
+
+        let mut parent_path = parent_pattern.unwrap_or_default();
+        let mut route_path = String::new();
+
+        for part in parent_path.iter() {
+            route_path.push_str(part.trim_end_matches("/"));
+        }
+
+        route_path.push_str(path);
+
+        if let Err(e) = self.router.insert(&route_path, route_chain) {
             panic!("Failed to insert route '{path}': {e}");
         }
 
-        for child in children.iter() {
-            self.mount_route(child.as_ref());
-        }
+        parent_path.push(route_path);
 
-        self.hydrate(route);
+        for child in children.into_iter() {
+            self.mount_route(child, parent_path.clone().into());
+        }
     }
 
-    pub fn hydrate(&mut self, route: &dyn ApexClientRoute) {
+    fn init(&self) {
         let window = web_sys::window().expect("window not found");
         let document = window.document().expect("document not found");
+
+        let rehydrate_callback = {
+            let outlets = self.outlets.clone();
+
+            Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
+                let outlets = outlets.borrow_mut();
+                let event_detail: wasm_bindgen::JsValue = event.detail();
+
+                web_sys::console::log_1(&format!("Event detail: {event_detail:#?}").into());
+
+                let Ok(outlet_key) = js_sys::Reflect::get(&event_detail, &"outlet_key".into())
+                else {
+                    return;
+                };
+
+                let Ok(outlet_content) =
+                    js_sys::Reflect::get(&event_detail, &"outlet_content".into())
+                else {
+                    return;
+                };
+
+                if let Some(outlet_key) = outlet_key.as_string()
+                    && let Some(outlet_content) = outlet_content.as_string()
+                {
+                    let Some(outlet) = outlets.get(&outlet_key) else {
+                        return;
+                    };
+
+                    let Some(begin) = &outlet.begin else {
+                        return;
+                    };
+
+                    let Some(end) = &outlet.end else {
+                        return;
+                    };
+
+                    // Replace content between begin and end with outlet_content
+                    let window = web_sys::window().expect("window not found");
+                    let document = window.document().expect("document not found");
+
+                    // Create a temporary div to parse the outlet content
+                    let temp_div = document
+                        .create_element("div")
+                        .expect("failed to create div");
+                    temp_div.set_inner_html(&outlet_content);
+
+                    web_sys::console::log_1(&format!("HTML text: {outlet_content}").into());
+
+                    // Remove all nodes between begin and end comments
+                    let mut current_node = begin.next_sibling();
+                    while let Some(node) = &current_node {
+                        if node.is_same_node(Some(end)) {
+                            break;
+                        }
+
+                        let next = node.next_sibling();
+                        if let Some(parent) = node.parent_node() {
+                            let _ = parent.remove_child(node);
+                        }
+
+                        current_node = next;
+                    }
+
+                    // Insert all nodes from temp_div before the end comment
+                    if let Some(parent) = end.parent_node() {
+                        while let Some(child) = temp_div.first_child() {
+                            let _ = parent.insert_before(&child, Some(end));
+                        }
+                    }
+
+                    // let mut apex = Apex::new();
+                    // apex.hydrate_components(route.clone(), &outlet_key);
+                }
+            }) as Box<dyn FnMut(_)>)
+        };
+
+        let _ = document.add_event_listener_with_callback(
+            "apex:rehydrate",
+            rehydrate_callback.as_ref().unchecked_ref(),
+        );
+
+        rehydrate_callback.forget();
 
         let navigate_callback = {
             Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
@@ -78,7 +181,7 @@ impl ApexClientRouter {
                     web_sys::console::log_1(&format!("Navigating to: {path}").into());
 
                     let current_path = window.location().pathname().expect("pathname not found");
-                    let exclude_path = get_matched_path(&current_path, &path);
+                    let exclude_path = Self::get_matched_path(&current_path, &path);
 
                     // Fetch the new page content
                     let fetch_promise =
@@ -174,90 +277,6 @@ impl ApexClientRouter {
             }) as Box<dyn FnMut(_)>)
         };
 
-        // Add rehydrate event listener
-        let rehydrate_callback = {
-            let outlets = self.outlets.clone();
-            let route = route.clone();
-
-            Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
-                let outlets = outlets.borrow_mut();
-                let event_detail: wasm_bindgen::JsValue = event.detail();
-
-                web_sys::console::log_1(&format!("Event detail: {:#?}", event_detail).into());
-
-                let Ok(outlet_key) = js_sys::Reflect::get(&event_detail, &"outlet_key".into())
-                else {
-                    return;
-                };
-
-                let Ok(outlet_content) =
-                    js_sys::Reflect::get(&event_detail, &"outlet_content".into())
-                else {
-                    return;
-                };
-
-                if let Some(outlet_key) = outlet_key.as_string()
-                    && let Some(outlet_content) = outlet_content.as_string()
-                {
-                    let Some(outlet) = outlets.get(&outlet_key) else {
-                        return;
-                    };
-
-                    let Some(begin) = &outlet.begin else {
-                        return;
-                    };
-
-                    let Some(end) = &outlet.end else {
-                        return;
-                    };
-
-                    // Replace content between begin and end with outlet_content
-                    let window = web_sys::window().expect("window not found");
-                    let document = window.document().expect("document not found");
-
-                    // Create a temporary div to parse the outlet content
-                    let temp_div = document
-                        .create_element("div")
-                        .expect("failed to create div");
-                    temp_div.set_inner_html(&outlet_content);
-
-                    web_sys::console::log_1(&format!("HTML text: {outlet_content}").into());
-
-                    // Remove all nodes between begin and end comments
-                    let mut current_node = begin.next_sibling();
-                    while let Some(node) = &current_node {
-                        if node.is_same_node(Some(end)) {
-                            break;
-                        }
-
-                        let next = node.next_sibling();
-                        if let Some(parent) = node.parent_node() {
-                            let _ = parent.remove_child(node);
-                        }
-
-                        current_node = next;
-                    }
-
-                    // Insert all nodes from temp_div before the end comment
-                    if let Some(parent) = end.parent_node() {
-                        while let Some(child) = temp_div.first_child() {
-                            let _ = parent.insert_before(&child, Some(end));
-                        }
-                    }
-
-                    // let mut apex = Apex::new();
-                    // apex.hydrate_components(route.clone(), &outlet_key);
-                }
-            }) as Box<dyn FnMut(_)>)
-        };
-
-        let _ = document.add_event_listener_with_callback(
-            "apex:rehydrate",
-            rehydrate_callback.as_ref().unchecked_ref(),
-        );
-
-        rehydrate_callback.forget();
-
         let _ = document.add_event_listener_with_callback(
             "apex:navigate",
             navigate_callback.as_ref().unchecked_ref(),
@@ -265,10 +284,10 @@ impl ApexClientRouter {
 
         navigate_callback.forget();
 
-        self.hydrate_components(route, "");
+        self.hydrate();
     }
 
-    pub fn hydrate_components(&mut self, route: &dyn ApexClientRoute, exclude_path: &str) {
+    pub fn hydrate(&self) {
         apex_utils::reset_counters();
         static SHOW_COMMENT: u32 = 128;
 
@@ -378,98 +397,54 @@ impl ApexClientRouter {
         let location = window.location();
         let pathname = location.pathname().expect("pathname not found");
 
-        route.hydrate_components(&pathname, exclude_path, &expressions_map, &elements_map);
+        if let Ok(route_matched) = self.router.at(&pathname) {
+            if let Some(parent_patterns_chain) = route_matched.value.parent_pattern.as_ref() {
+                for parent_pattern in parent_patterns_chain.iter() {
+                    if let Ok(parent_route_match) = self
+                        .router
+                        .at(&Self::get_matched_path(parent_pattern, &pathname))
+                    {
+                        parent_route_match
+                            .value
+                            .route
+                            .hydrate_component(&expressions_map, &elements_map);
+                    }
+                }
+            }
+
+            route_matched
+                .value
+                .route
+                .hydrate_component(&expressions_map, &elements_map);
+        }
+    }
+
+    // Get the matched portion of a path after matching a pattern
+    // For example: pattern="/{name}/{age}", path="/john/23/calculator" returns "/john/23"
+    fn get_matched_path(pattern: &str, path: &str) -> String {
+        let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
+        let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+
+        if path_segments.len() < pattern_segments.len() {
+            return String::from("/");
+        }
+
+        // Take only the number of segments that match the pattern length
+        let matched_segments = &path_segments[..pattern_segments.len()];
+
+        if matched_segments.is_empty() {
+            String::from("/")
+        } else {
+            format!("/{}", matched_segments.join("/"))
+        }
     }
 }
 
-/// Register a route pattern with the global client router
-/// This should be called during application initialization for each route
-pub fn register_client_route(pattern: &str) {
-    let mut router = GLOBAL_CLIENT_ROUTER.lock().unwrap();
-    // Use the pattern itself as the value for identification
-    if let Err(e) = router.insert(pattern, pattern.to_string()) {
-        // Log the error but don't panic - duplicate routes might be OK
-        web_sys::console::warn_2(
-            &format!("Failed to register client route '{}': {}", pattern, e).into(),
-            &wasm_bindgen::JsValue::NULL,
-        );
-    }
-}
-
-/// Check if a path matches any registered route pattern using the global router
-/// Returns the matched pattern if found
-pub fn path_matches_with_router(path: &str) -> Option<String> {
-    let router = GLOBAL_CLIENT_ROUTER.lock().unwrap();
-    match router.at(path) {
-        Ok(matched) => Some(matched.value.clone()),
-        Err(_) => None,
-    }
-}
-
-/// Check if a path matches a specific pattern as a prefix using the global router
-pub fn path_matches_prefix_with_router(pattern: &str, path: &str) -> bool {
-    let router = GLOBAL_CLIENT_ROUTER.lock().unwrap();
-
-    // First try exact match
-    if let Ok(matched) = router.at(path) {
-        return matched.value == pattern;
-    }
-
-    // For prefix matching, we need to check if the path starts with this pattern
-    // by trying to match progressively shorter paths
-    let path_segments: Vec<&str> = path
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    let pattern_segments: Vec<&str> = pattern
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    // Path must have at least as many segments as the pattern for prefix matching
-    if path_segments.len() < pattern_segments.len() {
-        return false;
-    }
-
-    // Build a test path with the same number of segments as the pattern
-    if pattern_segments.is_empty() {
-        return pattern == "/" || pattern.is_empty();
-    }
-
-    let test_path = format!("/{}", path_segments[..pattern_segments.len()].join("/"));
-
-    if let Ok(matched) = router.at(&test_path) {
-        matched.value == pattern
-    } else {
-        false
-    }
-}
-
-/// Get the unmatched portion of a path after a pattern match
-pub fn get_unmatched_path_after_router_match(pattern: &str, path: &str) -> String {
-    let pattern_segments: Vec<&str> = pattern
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    let path_segments: Vec<&str> = path
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    if path_segments.len() <= pattern_segments.len() {
-        return String::new();
-    }
-
-    let remaining_segments = &path_segments[pattern_segments.len()..];
-    if remaining_segments.is_empty() {
-        String::new()
-    } else {
-        format!("/{}", remaining_segments.join("/"))
+impl fmt::Debug for ApexClientRouter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ApexClientRouter")
+            .field("router", &"Router<RouteChain> { ... }")
+            .field("outlets_count", &self.outlets.borrow().len())
+            .finish()
     }
 }

@@ -25,62 +25,20 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
 
     let params_name = extract_params_name(&input);
 
-    let has_children = !args.children.is_empty();
-    let has_component = args.component.is_some();
-
-    #[allow(unused_variables)]
-    let hydrate_components_method_logic = if has_component {
-        let Some(component_name) = args.component.as_ref() else {
-            panic!("Route with return value must have a component");
-        };
-
+    let hydrate_component_method = if let Some(component_name) = args.component.as_ref() {
         quote! {
-            #[cfg(target_arch = "wasm32")]
-            {
-                let matches = if self.children().is_empty() {
-                    apex::apex_router::path_matches_pattern_optimized(self.path(), pathname)
-                } else {
-                    apex::apex_router::path_matches_pattern_prefix_optimized(self.path(), pathname)
-                };
-
-                if matches {
-                    let mut unmatched_exclude_path = exclude_path.to_string();
-
-                    if apex::apex_router::path_matches_pattern_prefix_optimized(self.path(), exclude_path) {
-                        unmatched_exclude_path = apex::apex_router::get_unmatched_path_optimized(self.path(), exclude_path);
-                    } else {
-                        let component = #component_name::builder().build();
-                        let hydrate_fn = component.hydrate();
-                        hydrate_fn(expressions_map, elements_map);
-                    }
-
-                    if #has_children {
-                        let unmatched_path = apex::apex_router::get_unmatched_path_optimized(self.path(), pathname);
-
-                        for child in self.children() {
-                            child.hydrate_components(&unmatched_path, &unmatched_exclude_path, expressions_map, elements_map);
-                        }
-                    }
-                }
+            fn hydrate_component(
+                &self,
+                expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
+                elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+            ) {
+                let component = #component_name::builder().build();
+                let hydrate_fn = component.hydrate();
+                hydrate_fn(expressions_map, elements_map);
             }
         }
     } else {
-        quote! {
-            for child in self.children() {
-                let parent_clean = parent_path.trim_end_matches('/');
-                let child_clean = <dyn apex::apex_router::ApexBaseRoute>::path(child.as_ref()).trim_start_matches('/');
-
-                let full_child_path = if parent_clean.is_empty() || parent_clean == "/" {
-                    format!("/{}", child_clean)
-                } else {
-                    format!("{}/{}", parent_clean, child_clean)
-                };
-
-                if apex::apex_router::path_matches_pattern_optimized(&full_child_path, pathname) {
-                    <dyn apex::apex_router::ApexBaseRoute>::hydrate_components(child.as_ref(), pathname, exclude_path, expressions_map, elements_map);
-                }
-            }
-        }
+        quote! {}
     };
 
     let has_return_value = match &input.sig.output {
@@ -117,6 +75,8 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
     } else {
         quote! {}
     };
+
+    let has_component = args.component.is_some();
 
     let handler_method_logic = if has_return_value && has_component {
         let Some(component_name) = args.component.as_ref() else {
@@ -183,7 +143,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         impl apex::apex_router::ApexServerRoute for #route_struct_name {
             fn path(&self) -> &'static str { #path }
 
-            fn handler(&self) -> apex::apex_router::ApexHandler {
+            fn handler(&self) -> apex::apex_router::ApexServerHandler {
                 Box::new(|#params_name: std::collections::HashMap<String, String>| {
                     Box::pin(async move {
                         #handler_method_logic
@@ -195,33 +155,27 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         }
     };
 
-    let client_route = quote! {
-        #[cfg(target_arch = "wasm32")]
-        pub struct #route_struct_name;
+    let client_route = if has_component {
+        quote! {
+            #[cfg(target_arch = "wasm32")]
+            pub struct #route_struct_name;
 
-        #[cfg(target_arch = "wasm32")]
-        impl #route_struct_name {
-            pub fn new() -> Self {
-                Self
-            }
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        impl apex::apex_router::ApexClientRoute for #route_struct_name {
-            fn path(&self) -> &'static str { #path }
-
-            fn hydrate_components(
-                &self,
-                pathname: &str,
-                exclude_path: &str,
-                expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
-                elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
-            ) {
-                #hydrate_components_method_logic
+            #[cfg(target_arch = "wasm32")]
+            impl #route_struct_name {
+                pub fn new() -> Self {
+                    Self
+                }
             }
 
-            #client_children_method
+            #[cfg(target_arch = "wasm32")]
+            impl apex::apex_router::ApexClientRoute for #route_struct_name {
+                fn path(&self) -> &'static str { #path }
+                #hydrate_component_method
+                #client_children_method
+            }
         }
+    } else {
+        quote! {}
     };
 
     quote! {
