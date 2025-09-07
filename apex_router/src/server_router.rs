@@ -190,17 +190,30 @@ impl ApexServerRouter {
     /// ```rust,ignore
     /// let response = router.handle_request("/users/123", "").await;
     /// ```
-    pub async fn handle_request(&self, path: &str, _query: &str) -> Option<String> {
+    pub async fn handle_request(&self, path: &str, query: &str) -> Option<String> {
         apex_utils::reset_counters();
+
+        let exclude_path = query
+            .split('&')
+            .find(|s| s.starts_with("exclude="))
+            .and_then(|s| s.split('=').nth(1))
+            .unwrap_or("")
+            .replace("%2F", "/"); // Handle URL-encoded slashes
+
+        println!("exclude_path: {exclude_path}");
 
         if let Ok(route_match) = self.router.at(path) {
             let mut html = String::new();
 
             if let Some(parent_patterns_chain) = route_match.value.parent_pattern.as_ref() {
                 for parent_pattern in parent_patterns_chain.iter() {
-                    if let Ok(parent_route_match) =
-                        self.router.at(&get_matched_path(parent_pattern, path))
-                    {
+                    let matched_path = get_matched_path(parent_pattern, path);
+
+                    if matched_path == exclude_path {
+                        continue;
+                    }
+
+                    if let Ok(parent_route_match) = self.router.at(&matched_path) {
                         self.update_html(parent_route_match, &mut html).await;
                     }
                 }
