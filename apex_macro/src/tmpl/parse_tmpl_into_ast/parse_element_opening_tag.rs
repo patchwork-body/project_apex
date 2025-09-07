@@ -83,9 +83,7 @@ pub(crate) fn parse_element_opening_tag(
             }
         } else if ch == '=' {
             match state {
-                ElementOpeningTagState::Void => {
-                    continue;
-                }
+                ElementOpeningTagState::Void => {}
                 ElementOpeningTagState::AttributeName => {
                     state = ElementOpeningTagState::AttributeValue;
                 }

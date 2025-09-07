@@ -4,7 +4,6 @@ use apex::{
     web_sys,
 };
 use std::{
-    collections::HashMap,
     fmt::{self, Display},
     rc::Rc,
 };

@@ -284,6 +284,49 @@ pub(crate) fn render_ast(
 
                     expressions.extend(attr_setters_expressions);
 
+                    // Extract event handlers for server-side to prevent unused warnings
+                    // This only runs at compile time and generates no runtime overhead
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let event_handler_usages = sorted_attributes
+                            .iter()
+                            .filter_map(|(_k, v)| {
+                                match v {
+                                    Attribute::EventListener(handler) => {
+                                        if let Ok(handler_tokens) =
+                                            syn::parse_str::<syn::Expr>(handler)
+                                        {
+                                            // Extract identifiers to create a usage in server-side code
+                                            let mut visitor = IdentifierVisitor::new();
+                                            visitor.visit_expr(&handler_tokens);
+                                            let vars = visitor.identifiers;
+
+                                            if !vars.is_empty() {
+                                                Some(quote! {
+                                                    // Create a usage of event handler variables to prevent unused warnings
+                                                    // This is a no-op that will be optimized away by LLVM
+                                                    // It generates zero machine code in release builds
+                                                    #[cfg(not(target_arch = "wasm32"))]
+                                                    {
+                                                        #(let _ = &#vars;)*
+                                                    }
+                                                })
+                                            } else {
+                                                None
+                                            }
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    _ => None,
+                                }
+                            })
+                            .collect::<Vec<_>>();
+
+                        // Add event handler usages to instructions (server-side)
+                        instructions.extend(event_handler_usages);
+                    }
+
                     let event_listeners = sorted_attributes.iter().filter_map(|(k, v)| {
                         match v {
                             Attribute::EventListener(handler) => {
