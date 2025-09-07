@@ -101,8 +101,8 @@ impl ApexClientRouter {
 
                     web_sys::console::log_1(&format!("Navigating to: {path} current_path: {current_path} exclude_path: {exclude_path}").into());
 
-                    let fetch_promise =
-                        window.fetch_with_str(&format!("{path}?exclude={exclude_path}&"));
+                    let fetch_promise = window
+                        .fetch_with_str(&format!("{path}?has_exclude&exclude={exclude_path}&"));
 
                     let document_clone = document.clone();
                     let path_clone: String = path.clone();
@@ -129,43 +129,113 @@ impl ApexClientRouter {
                                     let history = history.clone();
 
                                     Closure::wrap(Box::new(
-                                        move |html_text: wasm_bindgen::JsValue| {
-                                            if let Some(html_text) = html_text.as_string() {
-                                                web_sys::console::log_1(
-                                                    &format!("Exclude path: {exclude_path}").into(),
-                                                );
-
-                                                let _ = history.push_state_with_url(
-                                                    &js_sys::Object::new(),
-                                                    "",
-                                                    Some(&path),
-                                                );
-
-                                                let event_init = web_sys::CustomEventInit::new();
-                                                let detail = js_sys::Object::new();
-
-                                                let _ = js_sys::Reflect::set(
-                                                    &detail,
-                                                    &"outlet_key".into(),
-                                                    &exclude_path.to_string().into(),
-                                                );
-
-                                                let _ = js_sys::Reflect::set(
-                                                    &detail,
-                                                    &"outlet_content".into(),
-                                                    &html_text.into(),
-                                                );
-
-                                                event_init.set_detail(&detail);
-
-                                                if let Ok(custom_event) =
-                                                    web_sys::CustomEvent::new_with_event_init_dict(
-                                                        "apex:rehydrate",
-                                                        &event_init,
-                                                    )
+                                        move |json_text: wasm_bindgen::JsValue| {
+                                            if let Some(json_str) = json_text.as_string() {
+                                                if let Ok(json_obj) = js_sys::JSON::parse(&json_str)
                                                 {
-                                                    let _ = document_clone2
-                                                        .dispatch_event(&custom_event);
+                                                    let html_value = js_sys::Reflect::get(
+                                                        &json_obj,
+                                                        &"html".into(),
+                                                    )
+                                                    .unwrap_or(wasm_bindgen::JsValue::from_str(""));
+
+                                                    if let Ok(data_value) = js_sys::Reflect::get(
+                                                        &json_obj,
+                                                        &"data".into(),
+                                                    ) {
+                                                        let window = web_sys::window()
+                                                            .expect("window not found");
+
+                                                        // Get existing INIT_DATA or create new object
+                                                        let existing_data = js_sys::Reflect::get(
+                                                            &window,
+                                                            &"INIT_DATA".into(),
+                                                        )
+                                                        .unwrap_or_else(|_| {
+                                                            js_sys::Object::new().into()
+                                                        });
+
+                                                        // If existing_data is not an object, create a new one
+                                                        let init_data = if existing_data.is_object()
+                                                        {
+                                                            existing_data
+                                                        } else {
+                                                            js_sys::Object::new().into()
+                                                        };
+
+                                                        // Merge new data into existing INIT_DATA
+                                                        if let Some(data_obj) =
+                                                            data_value.dyn_ref::<js_sys::Object>()
+                                                        {
+                                                            let entries =
+                                                                js_sys::Object::entries(data_obj);
+                                                            let length =
+                                                                js_sys::Array::length(&entries);
+
+                                                            for i in 0..length {
+                                                                if let Some(entry) = entries
+                                                                    .get(i)
+                                                                    .dyn_ref::<js_sys::Array>(
+                                                                ) {
+                                                                    let key = entry.get(0);
+                                                                    let value = entry.get(1);
+                                                                    let _ = js_sys::Reflect::set(
+                                                                        &init_data, &key, &value,
+                                                                    );
+                                                                }
+                                                            }
+                                                        }
+
+                                                        let _ = js_sys::Reflect::set(
+                                                            &window,
+                                                            &"INIT_DATA".into(),
+                                                            &init_data,
+                                                        );
+                                                    }
+
+                                                    if let Some(html_text) = html_value.as_string()
+                                                    {
+                                                        web_sys::console::log_1(
+                                                            &format!(
+                                                                "Exclude path: {exclude_path}"
+                                                            )
+                                                            .into(),
+                                                        );
+
+                                                        let _ = history.push_state_with_url(
+                                                            &js_sys::Object::new(),
+                                                            "",
+                                                            Some(&path),
+                                                        );
+
+                                                        let event_init =
+                                                            web_sys::CustomEventInit::new();
+                                                        let detail = js_sys::Object::new();
+
+                                                        let _ = js_sys::Reflect::set(
+                                                            &detail,
+                                                            &"outlet_key".into(),
+                                                            &exclude_path.to_string().into(),
+                                                        );
+
+                                                        let _ = js_sys::Reflect::set(
+                                                            &detail,
+                                                            &"outlet_content".into(),
+                                                            &html_text.into(),
+                                                        );
+
+                                                        event_init.set_detail(&detail);
+
+                                                        if let Ok(custom_event) =
+                                                            web_sys::CustomEvent::new_with_event_init_dict(
+                                                                "apex:rehydrate",
+                                                                &event_init,
+                                                            )
+                                                        {
+                                                            let _ = document_clone2
+                                                                .dispatch_event(&custom_event);
+                                                        }
+                                                    }
                                                 }
                                             }
                                         },
@@ -273,8 +343,7 @@ impl ApexClientRouter {
                         web_sys::console::log_1(&"End comment not found".to_owned().into());
                     }
 
-                    // let mut apex = Apex::new();
-                    // apex.hydrate_components(route.clone(), &outlet_key);
+                    Self::hydrate_router(router.clone(), Some(outlet_key));
                 }
             }) as Box<dyn FnMut(_)>)
         };
@@ -286,10 +355,10 @@ impl ApexClientRouter {
 
         rehydrate_callback.forget();
 
-        self.hydrate();
+        Self::hydrate_router(self.router.clone(), None);
     }
 
-    pub fn hydrate(&self) {
+    fn hydrate_router(router: Rc<RefCell<Router<RouteChain>>>, exclude_path: Option<String>) {
         apex_utils::reset_counters();
         static SHOW_COMMENT: u32 = 128;
 
@@ -377,29 +446,38 @@ impl ApexClientRouter {
                     elements_map.insert(comment_id.clone(), element_node.clone());
                     nodes_to_remove.push(comment.clone());
                 } else if comment_type == "@outlet-begin" {
-                    // Store outlet begin in the corresponding route
-                    if let Ok(route_match) = self.router.borrow().at(comment_id) {
+                    let exclude_path = exclude_path.clone().unwrap_or_default();
+
+                    if !exclude_path.is_empty()
+                        && get_matched_path(comment_id, &exclude_path) == exclude_path
+                    {
+                        continue;
+                    }
+
+                    if let Ok(route_match) = router.borrow().at(comment_id) {
                         let mut outlet_ref = route_match.value.outlet.borrow_mut();
+
                         if outlet_ref.is_none() {
                             *outlet_ref = Some(Outlet {
                                 begin: Some(comment.clone()),
                                 end: None,
                             });
-                        } else if let Some(outlet) = outlet_ref.as_mut() {
-                            outlet.begin = Some(comment.clone());
                         }
                     }
                 } else if comment_type == "@outlet-end" {
-                    // Store outlet end in the corresponding route
-                    if let Ok(route_match) = self.router.borrow().at(comment_id) {
+                    let exclude_path = exclude_path.clone().unwrap_or_default();
+
+                    if !exclude_path.is_empty()
+                        && get_matched_path(comment_id, &exclude_path) == exclude_path
+                    {
+                        continue;
+                    }
+
+                    if let Ok(route_match) = router.borrow().at(comment_id) {
                         let mut outlet_ref = route_match.value.outlet.borrow_mut();
+
                         if let Some(outlet) = outlet_ref.as_mut() {
                             outlet.end = Some(comment.clone());
-                        } else {
-                            *outlet_ref = Some(Outlet {
-                                begin: None,
-                                end: Some(comment.clone()),
-                            });
                         }
                     }
                 }
@@ -413,11 +491,16 @@ impl ApexClientRouter {
         let location = window.location();
         let pathname = location.pathname().expect("pathname not found");
 
-        if let Ok(route_matched) = self.router.borrow().at(&pathname) {
+        if let Ok(route_matched) = router.borrow().at(&pathname) {
             if let Some(parent_patterns_chain) = route_matched.value.parent_pattern.as_ref() {
                 for parent_pattern in parent_patterns_chain.iter() {
-                    if let Ok(parent_route_match) = self
-                        .router
+                    let matched_path = get_matched_path(parent_pattern, &pathname);
+
+                    if exclude_path.as_ref() == Some(&matched_path) {
+                        continue;
+                    }
+
+                    if let Ok(parent_route_match) = router
                         .borrow()
                         .at(&get_matched_path(parent_pattern, &pathname))
                     {

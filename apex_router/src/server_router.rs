@@ -178,12 +178,15 @@ impl ApexServerRouter {
     /// # Arguments
     ///
     /// * `path` - The request path to match against registered routes
-    /// * `_query` - Query string parameters (currently unused)
+    /// * `query` - Query string parameters (used for exclude parameter and response format)
     ///
     /// # Returns
     ///
-    /// Returns `Some(String)` containing the HTML response if a route matches,
-    /// or `None` if no route is found for the given path.
+    /// Returns `Some(String)` containing either:
+    /// - JSON response with `data` and `html` fields if query contains `has_exclude`
+    /// - HTML response string otherwise
+    ///
+    /// Returns `None` if no route is found for the given path.
     ///
     /// # Examples
     ///
@@ -193,14 +196,14 @@ impl ApexServerRouter {
     pub async fn handle_request(&self, path: &str, query: &str) -> Option<String> {
         apex_utils::reset_counters();
 
+        let has_exclude = query.contains("has_exclude");
+
         let exclude_path = query
             .split('&')
             .find(|s| s.starts_with("exclude="))
             .and_then(|s| s.split('=').nth(1))
             .unwrap_or("")
             .replace("%2F", "/"); // Handle URL-encoded slashes
-
-        println!("exclude_path: {exclude_path}");
 
         if let Ok(route_match) = self.router.at(path) {
             let mut html = String::new();
@@ -220,6 +223,23 @@ impl ApexServerRouter {
             }
 
             self.update_html(route_match, &mut html).await;
+
+            if has_exclude {
+                use crate::init_data::get_and_clear_route_data;
+
+                let data = get_and_clear_route_data();
+                let json_response = serde_json::json!({
+                    "data": data,
+                    "html": html
+                });
+
+                return Some(serde_json::to_string(&json_response).unwrap_or_else(|_| {
+                    format!(
+                        r#"{{"data": {{}}, "html": "{}"}}"#,
+                        html.replace('"', r#"\""#)
+                    )
+                }));
+            }
 
             let init_data_script = generate_init_data_script();
 
