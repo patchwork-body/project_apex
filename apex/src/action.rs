@@ -1,5 +1,8 @@
 /// Macro to create event handlers that capture signals and execute closures
 ///
+/// Returns an `Action` type (alias for `Rc<dyn Fn(web_sys::Event)>`) that can be used
+/// in component props for event handlers.
+///
 /// Usage examples:
 /// ```rust
 /// use apex::prelude::*;
@@ -29,6 +32,14 @@
 ///     e.prevent_default();
 ///     count.update(|c| c + 1);
 /// });
+///
+/// // Use in component props:
+/// #[component]
+/// pub fn my_button(
+///     #[prop(default = noop_action())] onclick: Action,
+/// ) {
+///     // ...
+/// }
 /// ```
 #[macro_export]
 macro_rules! action {

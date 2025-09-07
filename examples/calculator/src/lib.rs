@@ -3,10 +3,7 @@ use apex::{
     wasm_bindgen::{JsCast, prelude::Closure},
     web_sys,
 };
-use std::{
-    fmt::{self, Display},
-    rc::Rc,
-};
+use std::fmt::{self, Display};
 
 use apex::prelude::*;
 use apex_components::Link;
@@ -17,9 +14,9 @@ pub fn button(
     #[prop(default = false)] wide: bool,
     #[prop(default = false)] primary: bool,
     #[prop(default = false)] secondary: bool,
-    #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onclick: Rc<dyn Fn(web_sys::Event)>,
-    #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onmousedown: Rc<dyn Fn(web_sys::Event)>,
-    #[prop(default = Rc::new(|_event: web_sys::Event| {}))] onmouseup: Rc<dyn Fn(web_sys::Event)>,
+    #[prop(default = noop_action())] onclick: Action,
+    #[prop(default = noop_action())] onmousedown: Action,
+    #[prop(default = noop_action())] onmouseup: Action,
 ) {
     let mut classes = vec!["button"];
 
