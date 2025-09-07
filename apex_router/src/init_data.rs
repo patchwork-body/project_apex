@@ -1,45 +1,4 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
 use wasm_bindgen::JsValue;
-
-lazy_static::lazy_static! {
-    static ref ROUTE_DATA_COLLECTOR: Mutex<HashMap<String, serde_json::Value>> = Mutex::new(HashMap::new());
-}
-
-pub fn add_route_data<T: serde::Serialize>(
-    route_name: &str,
-    data: T,
-) -> Result<(), serde_json::Error> {
-    let json_value = serde_json::to_value(data)?;
-    ROUTE_DATA_COLLECTOR
-        .lock()
-        .unwrap()
-        .insert(route_name.to_owned(), json_value);
-
-    Ok(())
-}
-
-pub fn get_and_clear_route_data() -> HashMap<String, serde_json::Value> {
-    let mut collector = ROUTE_DATA_COLLECTOR.lock().unwrap();
-    let data = collector.clone();
-    collector.clear();
-
-    data
-}
-
-pub fn generate_init_data_script() -> String {
-    let data = get_and_clear_route_data();
-
-    if data.is_empty() {
-        String::new()
-    } else {
-        let json_data = serde_json::json!(data);
-        format!(
-            r#"<script id="apex-init-data">window.INIT_DATA = {};</script>"#,
-            serde_json::to_string(&json_data).unwrap_or_else(|_| "{}".to_owned())
-        )
-    }
-}
 
 /// Get INIT_DATA from window object as JsValue
 pub fn get_init_data() -> Option<JsValue> {

@@ -10,5 +10,4 @@ pub use wasm_bindgen;
 pub use web_sys;
 
 pub mod action;
-pub mod server_context;
 pub mod signal;

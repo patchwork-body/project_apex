@@ -50,7 +50,7 @@ impl ApexClientRouter {
     fn mount_root_route(&mut self, route: Box<dyn ApexClientRoute>) {
         self.mount_route(route, None);
         self.init();
-        // Self::cleanup_init_script();
+        Self::cleanup_init_script();
     }
 
     fn mount_route(
