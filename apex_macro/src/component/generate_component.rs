@@ -125,7 +125,7 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
 
         #[cfg(not(target_arch = "wasm32"))]
         impl #struct_name {
-            pub fn render(&self) -> String {
+            pub fn render(&self, data: &std::collections::HashMap<String, serde_json::Value>) -> String {
                 #(#prop_bindings)*
                 #fn_body
             }

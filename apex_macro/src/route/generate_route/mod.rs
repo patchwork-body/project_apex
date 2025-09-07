@@ -60,16 +60,20 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         };
 
         quote! {
-            pub fn #helper_name() -> Signal<Option<#return_type>> {
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let route_name = stringify!(#fn_name);
-                    signal!(apex::apex_router::init_data::get_typed_route_data::<#return_type>(route_name))
-                }
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    signal!(apex::server_context::get_server_context::<#return_type>())
-                }
+            #[cfg(target_arch = "wasm32")]
+            pub(crate) fn #helper_name() -> Signal<Option<#return_type>> {
+                let route_name = stringify!(#fn_name);
+                signal!(apex::apex_router::init_data::get_typed_route_data::<#return_type>(route_name))
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            pub(crate) fn #helper_name(data: &std::collections::HashMap<String, serde_json::Value>) -> Signal<Option<#return_type>> {
+                let route_name = stringify!(#fn_name);
+
+                signal!(
+                    data.get(route_name)
+                        .and_then(|value| serde_json::from_value::<#return_type>(value.clone()).ok())
+                )
             }
         }
     } else {
@@ -88,10 +92,12 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             let component = #component_name::builder().build();
 
             let route_name = stringify!(#fn_name);
-            let _ = apex::apex_router::init_data::add_route_data(route_name, &route_data);
-            apex::server_context::set_server_context(route_data);
 
-            let html = component.render();
+            if let Ok(serialized_data) = serde_json::to_value(&route_data) {
+                data.insert(route_name.to_owned(), serialized_data);
+            }
+
+            let html = component.render(&data);
 
             html
         }
@@ -103,14 +109,16 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         quote! {
             { #fn_body };
             let component = #component_name::builder().build();
-            component.render()
+            component.render(&data)
         }
     } else {
         quote! {
             let route_data = { #fn_body };
             let route_name = stringify!(#fn_name);
-            let _ = apex::apex_router::init_data::add_route_data(route_name, &route_data);
-            apex::server_context::set_server_context(route_data);
+
+            if let Ok(serialized_data) = serde_json::to_value(&route_data) {
+                data.insert(route_name.to_owned(), serialized_data);
+            }
 
             route_data
         }
@@ -146,7 +154,13 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             fn handler(&self) -> apex::apex_router::ApexServerHandler {
                 Box::new(|#params_name: std::collections::HashMap<String, String>| {
                     Box::pin(async move {
-                        #handler_method_logic
+                        let mut data: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+
+                        let html = {
+                            #handler_method_logic
+                        };
+
+                        (html, data)
                     })
                 })
             }

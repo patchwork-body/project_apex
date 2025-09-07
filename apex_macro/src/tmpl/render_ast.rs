@@ -183,7 +183,8 @@ pub(crate) fn render_ast(
                         #[cfg(not(target_arch = "wasm32"))]
                         {
                             let component_instance = #builder_chain.build();
-                            let component_html = component_instance.render();
+                            // Data is passed from the route, so it might not exist if this component is rendered not in the route
+                            let component_html = component_instance.render(data);
 
                             buffer.push_str(&component_html);
                         }

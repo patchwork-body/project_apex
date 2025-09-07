@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-/// Client-side utilities for accessing INIT_DATA passed from the server
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsValue;
 
 lazy_static::lazy_static! {
     static ref ROUTE_DATA_COLLECTOR: Mutex<HashMap<String, serde_json::Value>> = Mutex::new(HashMap::new());
@@ -25,24 +23,25 @@ pub fn get_and_clear_route_data() -> HashMap<String, serde_json::Value> {
     let mut collector = ROUTE_DATA_COLLECTOR.lock().unwrap();
     let data = collector.clone();
     collector.clear();
+
     data
 }
 
 pub fn generate_init_data_script() -> String {
     let data = get_and_clear_route_data();
+
     if data.is_empty() {
         String::new()
     } else {
         let json_data = serde_json::json!(data);
         format!(
-            r#"<script>window.INIT_DATA = {};</script>"#,
+            r#"<script id="apex-init-data">window.INIT_DATA = {};</script>"#,
             serde_json::to_string(&json_data).unwrap_or_else(|_| "{}".to_owned())
         )
     }
 }
 
 /// Get INIT_DATA from window object as JsValue
-#[cfg(target_arch = "wasm32")]
 pub fn get_init_data() -> Option<JsValue> {
     let window = web_sys::window()?;
     let init_data = js_sys::Reflect::get(&window, &JsValue::from_str("INIT_DATA")).ok()?;
@@ -54,26 +53,8 @@ pub fn get_init_data() -> Option<JsValue> {
     Some(init_data)
 }
 
-/// Get typed INIT_DATA by deserializing the entire object to the specified type
-/// This is used by generated route helper functions
-#[cfg(target_arch = "wasm32")]
-pub fn get_typed_init_data<T>() -> Option<T>
-where
-    T: for<'de> serde::Deserialize<'de>,
-{
-    let init_data = get_init_data()?;
-
-    // Convert JsValue to JSON string, then deserialize
-    let json_string = js_sys::JSON::stringify(&init_data).ok()?;
-    let json_str = json_string.as_string()?;
-
-    // Use serde_json to deserialize the full object
-    serde_json::from_str(&json_str).ok()
-}
-
 /// Get typed INIT_DATA for a specific route by key
 /// This looks for data under INIT_DATA[route_name]
-#[cfg(target_arch = "wasm32")]
 pub fn get_typed_route_data<T>(route_name: &str) -> Option<T>
 where
     T: for<'de> serde::Deserialize<'de>,

@@ -30,6 +30,8 @@ fn test_component() {
         tmpl! { <div>Hello, world!</div> }
     }
 
+    let data = &std::collections::HashMap::new();
+
     assert_eq!(tmpl! { <MyComponent /> }, "<div>Hello, world!</div>");
 }
 
@@ -41,6 +43,8 @@ fn test_component_with_static_prop() {
     fn my_component(#[prop] name: &'static str) {
         tmpl! { <div>Hello, {name}!</div> }
     }
+
+    let data = &std::collections::HashMap::new();
 
     assert_eq!(
         tmpl! { <MyComponent name="John" /> },
@@ -59,6 +63,8 @@ fn test_component_with_dynamic_prop() {
 
     let signal = Signal::new("John".to_owned());
 
+    let data = &std::collections::HashMap::new();
+
     assert_eq!(
         tmpl! { <MyComponent name={signal} /> },
         "<div>Hello, <!-- @expr-text-begin:0 -->John<!-- @expr-text-end:0 -->!</div>"
@@ -73,6 +79,8 @@ fn test_same_component_multiple_times() {
     fn my_component(#[prop] name: Signal<String>) {
         tmpl! { <div>Hello, {name.get()}!</div> }
     }
+
+    let data = &std::collections::HashMap::new();
 
     assert_eq!(
         tmpl! { <MyComponent name={Signal::new("John".to_owned())} /> <MyComponent name={Signal::new("Jane".to_owned())} /> },

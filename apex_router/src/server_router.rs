@@ -6,14 +6,19 @@
 use matchit::{Match, Router};
 use std::{collections::HashMap, future::Future, pin::Pin};
 
-use crate::{get_matched_path, init_data::generate_init_data_script};
+use crate::get_matched_path;
 
 /// Type alias for server-side route handlers.
 ///
 /// A server handler is a boxed closure that takes route parameters as a HashMap
 /// and returns a pinned future that resolves to an HTML string response.
 pub type ApexServerHandler = Box<
-    dyn Fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
+    dyn Fn(
+            HashMap<String, String>,
+        )
+            -> Pin<Box<dyn Future<Output = (String, HashMap<String, serde_json::Value>)> + Send>>
+        + Send
+        + Sync,
 >;
 
 /// Trait defining the interface for server-side routes.
@@ -21,7 +26,7 @@ pub type ApexServerHandler = Box<
 /// This trait must be implemented by all route types that can be registered
 /// with the server router. It provides methods for retrieving the route path,
 /// handler function, and child routes for hierarchical routing.
-pub trait ApexServerRoute {
+pub trait ApexServerRoute: Send + Sync {
     /// Returns the path pattern for this route.
     ///
     /// The path can include parameter patterns like `/users/{id}` for dynamic routing.
@@ -36,7 +41,7 @@ pub trait ApexServerRoute {
     /// a future that resolves to an HTML string response. Defaults to an empty
     /// response if not overridden.
     fn handler(&self) -> ApexServerHandler {
-        Box::new(|_| Box::pin(async { "".to_owned() }))
+        Box::new(|_: HashMap<String, String>| Box::pin(async { ("".to_owned(), HashMap::new()) }))
     }
 
     /// Returns child routes for hierarchical routing.
@@ -195,6 +200,7 @@ impl ApexServerRouter {
     /// ```
     pub async fn handle_request(&self, path: &str, query: &str) -> Option<String> {
         apex_utils::reset_counters();
+        let mut data = HashMap::<String, serde_json::Value>::new();
 
         let has_exclude = query.contains("has_exclude");
 
@@ -217,17 +223,15 @@ impl ApexServerRouter {
                     }
 
                     if let Ok(parent_route_match) = self.router.at(&matched_path) {
-                        self.update_html(parent_route_match, &mut html).await;
+                        self.update_html(parent_route_match, &mut html, &mut data)
+                            .await;
                     }
                 }
             }
 
-            self.update_html(route_match, &mut html).await;
+            self.update_html(route_match, &mut html, &mut data).await;
 
             if has_exclude {
-                use crate::init_data::get_and_clear_route_data;
-
-                let data = get_and_clear_route_data();
                 let json_response = serde_json::json!({
                     "data": data,
                     "html": html
@@ -241,7 +245,11 @@ impl ApexServerRouter {
                 }));
             }
 
-            let init_data_script = generate_init_data_script();
+            let json_data = serde_json::json!(data);
+            let init_data_script = format!(
+                r#"<script id="apex-init-data">window.INIT_DATA = {};</script>"#,
+                serde_json::to_string(&json_data).unwrap_or_else(|_| "{}".to_owned())
+            );
 
             // Inject the init data script into the HTML
             if !init_data_script.is_empty() {
@@ -273,7 +281,12 @@ impl ApexServerRouter {
     ///
     /// * `route_match` - The matched route containing handler and parameters
     /// * `html` - Mutable reference to the HTML response being built
-    async fn update_html(&self, route_match: Match<'_, '_, &RouteChain>, html: &mut String) {
+    async fn update_html(
+        &self,
+        route_match: Match<'_, '_, &RouteChain>,
+        html: &mut String,
+        data: &mut HashMap<String, serde_json::Value>,
+    ) {
         let handler = route_match.value.handler.as_ref();
 
         let params_map: HashMap<String, String> = route_match
@@ -282,16 +295,16 @@ impl ApexServerRouter {
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect();
 
-        let parent_path = route_match
+        let parent_path: String = route_match
             .value
             .parent_pattern
             .clone()
             .unwrap_or_default()
             .join("");
 
-        println!("params map: {params_map:?}");
+        let (child_html, child_data) = handler(params_map).await;
 
-        let child_html = handler(params_map).await;
+        data.extend(child_data);
 
         if html.contains("<!-- @outlet-begin -->") && html.contains("<!-- @outlet-end -->") {
             Self::replace_outlet_content(&parent_path, html, &child_html);

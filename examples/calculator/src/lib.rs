@@ -4,6 +4,7 @@ use apex::{
     web_sys,
 };
 use std::{
+    collections::HashMap,
     fmt::{self, Display},
     rc::Rc,
 };
@@ -500,7 +501,7 @@ pub fn about_page(_params: HashMap<String, String>) -> AboutLoaderData {
 
 #[component]
 pub fn about() {
-    let loader_data = get_about_page_loader_data();
+    let loader_data = loader_data!(about_page);
 
     let loader_name = derive!(loader_data, {
         loader_data
@@ -514,8 +515,15 @@ pub fn about() {
             .map_or("No data".to_owned(), |data| data.age.to_string())
     });
 
+    let inc_age = action!(loader_age => |_event| {
+        loader_age.update(|age| {
+            (age.parse::<u8>().unwrap_or(0) + 1).to_string()
+        });
+    });
+
     tmpl! {
         <div class="about">
+            <button onclick={inc_age}>Inc age</button>
             <h1>About {loader_name.get()}</h1>
             <p>Age: {loader_age.get()}</p>
         </div>
@@ -546,7 +554,7 @@ pub fn root_page(params: HashMap<String, String>) -> LoaderData {
 
 #[component]
 pub fn layout() {
-    let loader_data = get_root_page_loader_data();
+    let loader_data = loader_data!(root_page);
 
     let loader_name = derive!(loader_data, {
         loader_data

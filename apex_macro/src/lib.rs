@@ -33,3 +33,8 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
 
     generate_route(route_args, item_fn).into()
 }
+
+#[proc_macro]
+pub fn loader_data(input: TokenStream) -> TokenStream {
+    crate::route::generate_loader_data_macro(input).into()
+}

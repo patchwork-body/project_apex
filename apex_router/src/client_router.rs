@@ -50,6 +50,7 @@ impl ApexClientRouter {
     fn mount_root_route(&mut self, route: Box<dyn ApexClientRoute>) {
         self.mount_route(route, None);
         self.init();
+        // Self::cleanup_init_script();
     }
 
     fn mount_route(
@@ -356,6 +357,15 @@ impl ApexClientRouter {
         rehydrate_callback.forget();
 
         Self::hydrate_router(self.router.clone(), None);
+    }
+
+    fn cleanup_init_script() {
+        let window = web_sys::window().expect("window not found");
+        let document = window.document().expect("document not found");
+
+        if let Some(script) = document.get_element_by_id("apex-init-data") {
+            script.remove();
+        }
     }
 
     fn hydrate_router(router: Rc<RefCell<Router<RouteChain>>>, exclude_path: Option<String>) {

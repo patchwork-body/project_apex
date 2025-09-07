@@ -63,6 +63,8 @@ name = "apex_components"
 version = "0.1.0"
 dependencies = [
  "apex",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -78,6 +80,8 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
+ "serde",
+ "serde_json",
  "syn",
  "tokio",
  "wasm-bindgen",

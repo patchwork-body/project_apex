@@ -90,7 +90,7 @@ async fn handle_request(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let router = Arc::new(ApexServerRouter::new(&RootPageRoute));
+    let router = Arc::new(ApexServerRouter::new(&RootPageRoute::new()));
 
     let listener = TcpListener::bind("0.0.0.0:9999").await?;
     println!("Server running on http://0.0.0.0:9999");
