@@ -1,10 +1,11 @@
 #![allow(missing_docs)]
 
 use matchit::Router;
-use std::rc::Rc;
-use std::{cell::RefCell, collections::HashMap, fmt};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
+
+use crate::get_matched_path;
 
 pub trait ApexClientRoute {
     fn path(&self) -> &'static str {
@@ -20,26 +21,25 @@ pub trait ApexClientRoute {
     }
 }
 
-struct RouteChain {
-    parent_pattern: Option<Vec<String>>,
-    route: Box<dyn ApexClientRoute>,
-}
-
 struct Outlet {
     pub begin: Option<web_sys::Comment>,
     pub end: Option<web_sys::Comment>,
 }
 
+struct RouteChain {
+    parent_pattern: Option<Vec<String>>,
+    route: Box<dyn ApexClientRoute>,
+    outlet: RefCell<Option<Outlet>>,
+}
+
 pub struct ApexClientRouter {
-    router: Router<RouteChain>,
-    outlets: Rc<RefCell<HashMap<String, Outlet>>>,
+    router: Rc<RefCell<Router<RouteChain>>>,
 }
 
 impl ApexClientRouter {
     pub fn new(route: Box<dyn ApexClientRoute>) -> Self {
         let mut r = Self {
-            router: Router::new(),
-            outlets: Rc::new(RefCell::new(HashMap::new())),
+            router: Rc::new(RefCell::new(Router::new())),
         };
 
         r.mount_root_route(route);
@@ -63,6 +63,7 @@ impl ApexClientRouter {
         let route_chain = RouteChain {
             parent_pattern: parent_pattern.clone(),
             route,
+            outlet: RefCell::new(None),
         };
 
         let mut parent_path = parent_pattern.unwrap_or_default();
@@ -74,7 +75,7 @@ impl ApexClientRouter {
 
         route_path.push_str(path);
 
-        if let Err(e) = self.router.insert(&route_path, route_chain) {
+        if let Err(e) = self.router.borrow_mut().insert(&route_path, route_chain) {
             panic!("Failed to insert route '{path}': {e}");
         }
 
@@ -89,105 +90,20 @@ impl ApexClientRouter {
         let window = web_sys::window().expect("window not found");
         let document = window.document().expect("document not found");
 
-        let rehydrate_callback = {
-            let outlets = self.outlets.clone();
-
-            Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
-                let outlets = outlets.borrow_mut();
-                let event_detail: wasm_bindgen::JsValue = event.detail();
-
-                web_sys::console::log_1(&format!("Event detail: {event_detail:#?}").into());
-
-                let Ok(outlet_key) = js_sys::Reflect::get(&event_detail, &"outlet_key".into())
-                else {
-                    return;
-                };
-
-                let Ok(outlet_content) =
-                    js_sys::Reflect::get(&event_detail, &"outlet_content".into())
-                else {
-                    return;
-                };
-
-                if let Some(outlet_key) = outlet_key.as_string()
-                    && let Some(outlet_content) = outlet_content.as_string()
-                {
-                    let Some(outlet) = outlets.get(&outlet_key) else {
-                        return;
-                    };
-
-                    let Some(begin) = &outlet.begin else {
-                        return;
-                    };
-
-                    let Some(end) = &outlet.end else {
-                        return;
-                    };
-
-                    // Replace content between begin and end with outlet_content
-                    let window = web_sys::window().expect("window not found");
-                    let document = window.document().expect("document not found");
-
-                    // Create a temporary div to parse the outlet content
-                    let temp_div = document
-                        .create_element("div")
-                        .expect("failed to create div");
-                    temp_div.set_inner_html(&outlet_content);
-
-                    web_sys::console::log_1(&format!("HTML text: {outlet_content}").into());
-
-                    // Remove all nodes between begin and end comments
-                    let mut current_node = begin.next_sibling();
-                    while let Some(node) = &current_node {
-                        if node.is_same_node(Some(end)) {
-                            break;
-                        }
-
-                        let next = node.next_sibling();
-                        if let Some(parent) = node.parent_node() {
-                            let _ = parent.remove_child(node);
-                        }
-
-                        current_node = next;
-                    }
-
-                    // Insert all nodes from temp_div before the end comment
-                    if let Some(parent) = end.parent_node() {
-                        while let Some(child) = temp_div.first_child() {
-                            let _ = parent.insert_before(&child, Some(end));
-                        }
-                    }
-
-                    // let mut apex = Apex::new();
-                    // apex.hydrate_components(route.clone(), &outlet_key);
-                }
-            }) as Box<dyn FnMut(_)>)
-        };
-
-        let _ = document.add_event_listener_with_callback(
-            "apex:rehydrate",
-            rehydrate_callback.as_ref().unchecked_ref(),
-        );
-
-        rehydrate_callback.forget();
-
         let navigate_callback = {
             Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
                 if let Some(path) = event.detail().as_string() {
                     let window = web_sys::window().expect("window not found");
                     let history = window.history().expect("history not found");
                     let document = window.document().expect("document not found");
-
-                    web_sys::console::log_1(&format!("Navigating to: {path}").into());
-
                     let current_path = window.location().pathname().expect("pathname not found");
-                    let exclude_path = Self::get_matched_path(&current_path, &path);
+                    let exclude_path = get_matched_path(&current_path, &path);
 
-                    // Fetch the new page content
+                    web_sys::console::log_1(&format!("Navigating to: {path} current_path: {current_path} exclude_path: {exclude_path}").into());
+
                     let fetch_promise =
                         window.fetch_with_str(&format!("{path}?exclude={exclude_path}&"));
 
-                    // Handle the fetch response
                     let document_clone = document.clone();
                     let path_clone: String = path.clone();
                     let history_clone = history.clone();
@@ -203,7 +119,6 @@ impl ApexClientRouter {
                             let history = history_clone.clone();
                             let exclude_path = exclude_path.clone();
 
-                            // Cast JsValue to Response
                             if let Ok(response) = response.dyn_into::<web_sys::Response>() {
                                 let text_promise = response.text().unwrap();
                                 let document_clone2 = document.clone();
@@ -220,11 +135,6 @@ impl ApexClientRouter {
                                                     &format!("Exclude path: {exclude_path}").into(),
                                                 );
 
-                                                web_sys::console::log_1(
-                                                    &format!("HTML text: {html_text}").into(),
-                                                );
-
-                                                // Update URL in browser history
                                                 let _ = history.push_state_with_url(
                                                     &js_sys::Object::new(),
                                                     "",
@@ -248,7 +158,6 @@ impl ApexClientRouter {
 
                                                 event_init.set_detail(&detail);
 
-                                                // Trigger rehydration by dispatching a custom event
                                                 if let Ok(custom_event) =
                                                     web_sys::CustomEvent::new_with_event_init_dict(
                                                         "apex:rehydrate",
@@ -283,6 +192,99 @@ impl ApexClientRouter {
         );
 
         navigate_callback.forget();
+
+        let rehydrate_callback = {
+            let router = self.router.clone();
+
+            Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
+                let event_detail: wasm_bindgen::JsValue = event.detail();
+
+                web_sys::console::log_1(&format!("Event detail: {event_detail:#?}").into());
+
+                let Ok(outlet_key) = js_sys::Reflect::get(&event_detail, &"outlet_key".into())
+                else {
+                    return;
+                };
+
+                let Ok(outlet_content) =
+                    js_sys::Reflect::get(&event_detail, &"outlet_content".into())
+                else {
+                    return;
+                };
+
+                web_sys::console::log_1(&format!("Outlet key: {outlet_key:#?}").into());
+
+                if let Some(outlet_key) = outlet_key.as_string()
+                    && let Some(outlet_content) = outlet_content.as_string()
+                {
+                    // Find the route and get its outlet
+                    let router_borrow = router.borrow();
+                    let Ok(outlet_match) = router_borrow.at(&outlet_key) else {
+                        return;
+                    };
+
+                    let outlet_ref = outlet_match.value.outlet.borrow();
+                    let Some(outlet) = outlet_ref.as_ref() else {
+                        return;
+                    };
+
+                    let Some(begin) = &outlet.begin else {
+                        return;
+                    };
+
+                    let Some(end) = &outlet.end else {
+                        return;
+                    };
+
+                    // Replace content between begin and end with outlet_content
+                    let window = web_sys::window().expect("window not found");
+                    let document = window.document().expect("document not found");
+
+                    // Create a temporary div to parse the outlet content
+                    let temp_div = document
+                        .create_element("div")
+                        .expect("failed to create div");
+                    temp_div.set_inner_html(&outlet_content);
+
+                    web_sys::console::log_1(&format!("HTML text: {outlet_content}").into());
+
+                    // Remove all nodes between begin and end comments
+                    let mut current_node = begin.next_sibling();
+                    while let Some(node) = &current_node {
+                        if node.is_same_node(Some(end)) {
+                            web_sys::console::log_1(&"End comment found".to_owned().into());
+                            break;
+                        }
+
+                        let next = node.next_sibling();
+                        if let Some(parent) = node.parent_node() {
+                            let _ = parent.remove_child(node);
+                        }
+
+                        current_node = next;
+                    }
+
+                    // Insert all nodes from temp_div before the end comment
+                    if let Some(parent) = end.parent_node() {
+                        while let Some(child) = temp_div.first_child() {
+                            let _ = parent.insert_before(&child, Some(end));
+                        }
+                    } else {
+                        web_sys::console::log_1(&"End comment not found".to_owned().into());
+                    }
+
+                    // let mut apex = Apex::new();
+                    // apex.hydrate_components(route.clone(), &outlet_key);
+                }
+            }) as Box<dyn FnMut(_)>)
+        };
+
+        let _ = document.add_event_listener_with_callback(
+            "apex:rehydrate",
+            rehydrate_callback.as_ref().unchecked_ref(),
+        );
+
+        rehydrate_callback.forget();
 
         self.hydrate();
     }
@@ -375,17 +377,31 @@ impl ApexClientRouter {
                     elements_map.insert(comment_id.clone(), element_node.clone());
                     nodes_to_remove.push(comment.clone());
                 } else if comment_type == "@outlet-begin" {
-                    self.outlets.borrow_mut().insert(
-                        comment_id.clone(),
-                        Outlet {
-                            begin: Some(comment.clone()),
-                            end: None,
-                        },
-                    );
-                } else if comment_type == "@outlet-end"
-                    && let Some(outlet) = self.outlets.borrow_mut().get_mut(comment_id)
-                {
-                    outlet.end = Some(comment.clone());
+                    // Store outlet begin in the corresponding route
+                    if let Ok(route_match) = self.router.borrow().at(comment_id) {
+                        let mut outlet_ref = route_match.value.outlet.borrow_mut();
+                        if outlet_ref.is_none() {
+                            *outlet_ref = Some(Outlet {
+                                begin: Some(comment.clone()),
+                                end: None,
+                            });
+                        } else if let Some(outlet) = outlet_ref.as_mut() {
+                            outlet.begin = Some(comment.clone());
+                        }
+                    }
+                } else if comment_type == "@outlet-end" {
+                    // Store outlet end in the corresponding route
+                    if let Ok(route_match) = self.router.borrow().at(comment_id) {
+                        let mut outlet_ref = route_match.value.outlet.borrow_mut();
+                        if let Some(outlet) = outlet_ref.as_mut() {
+                            outlet.end = Some(comment.clone());
+                        } else {
+                            *outlet_ref = Some(Outlet {
+                                begin: None,
+                                end: Some(comment.clone()),
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -397,12 +413,13 @@ impl ApexClientRouter {
         let location = window.location();
         let pathname = location.pathname().expect("pathname not found");
 
-        if let Ok(route_matched) = self.router.at(&pathname) {
+        if let Ok(route_matched) = self.router.borrow().at(&pathname) {
             if let Some(parent_patterns_chain) = route_matched.value.parent_pattern.as_ref() {
                 for parent_pattern in parent_patterns_chain.iter() {
                     if let Ok(parent_route_match) = self
                         .router
-                        .at(&Self::get_matched_path(parent_pattern, &pathname))
+                        .borrow()
+                        .at(&get_matched_path(parent_pattern, &pathname))
                     {
                         parent_route_match
                             .value
@@ -418,33 +435,12 @@ impl ApexClientRouter {
                 .hydrate_component(&expressions_map, &elements_map);
         }
     }
-
-    // Get the matched portion of a path after matching a pattern
-    // For example: pattern="/{name}/{age}", path="/john/23/calculator" returns "/john/23"
-    fn get_matched_path(pattern: &str, path: &str) -> String {
-        let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
-        let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-
-        if path_segments.len() < pattern_segments.len() {
-            return String::from("/");
-        }
-
-        // Take only the number of segments that match the pattern length
-        let matched_segments = &path_segments[..pattern_segments.len()];
-
-        if matched_segments.is_empty() {
-            String::from("/")
-        } else {
-            format!("/{}", matched_segments.join("/"))
-        }
-    }
 }
 
 impl fmt::Debug for ApexClientRouter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ApexClientRouter")
-            .field("router", &"Router<RouteChain> { ... }")
-            .field("outlets_count", &self.outlets.borrow().len())
+            .field("router", &"Rc<RefCell<Router<RouteChain>>> { ... }")
             .finish()
     }
 }

@@ -1,19 +1,13 @@
-#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Mutex;
 /// Client-side utilities for accessing INIT_DATA passed from the server
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-// Thread-local storage for collecting route data on the server
-#[cfg(not(target_arch = "wasm32"))]
 lazy_static::lazy_static! {
     static ref ROUTE_DATA_COLLECTOR: Mutex<HashMap<String, serde_json::Value>> = Mutex::new(HashMap::new());
 }
 
-/// Add route data to the collector (server-side only)
-#[cfg(not(target_arch = "wasm32"))]
 pub fn add_route_data<T: serde::Serialize>(
     route_name: &str,
     data: T,
@@ -27,8 +21,6 @@ pub fn add_route_data<T: serde::Serialize>(
     Ok(())
 }
 
-/// Get all collected route data and clear the collector (server-side only)
-#[cfg(not(target_arch = "wasm32"))]
 pub fn get_and_clear_route_data() -> HashMap<String, serde_json::Value> {
     let mut collector = ROUTE_DATA_COLLECTOR.lock().unwrap();
     let data = collector.clone();
@@ -36,8 +28,6 @@ pub fn get_and_clear_route_data() -> HashMap<String, serde_json::Value> {
     data
 }
 
-/// Generate the INIT_DATA script tag with all collected route data (server-side only)
-#[cfg(not(target_arch = "wasm32"))]
 pub fn generate_init_data_script() -> String {
     let data = get_and_clear_route_data();
     if data.is_empty() {

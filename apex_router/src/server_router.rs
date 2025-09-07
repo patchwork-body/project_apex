@@ -6,6 +6,8 @@
 use matchit::{Match, Router};
 use std::{collections::HashMap, future::Future, pin::Pin};
 
+use crate::{get_matched_path, init_data::generate_init_data_script};
+
 /// Type alias for server-side route handlers.
 ///
 /// A server handler is a boxed closure that takes route parameters as a HashMap
@@ -196,9 +198,8 @@ impl ApexServerRouter {
 
             if let Some(parent_patterns_chain) = route_match.value.parent_pattern.as_ref() {
                 for parent_pattern in parent_patterns_chain.iter() {
-                    if let Ok(parent_route_match) = self
-                        .router
-                        .at(&Self::get_matched_path(parent_pattern, path))
+                    if let Ok(parent_route_match) =
+                        self.router.at(&get_matched_path(parent_pattern, path))
                     {
                         self.update_html(parent_route_match, &mut html).await;
                     }
@@ -206,6 +207,22 @@ impl ApexServerRouter {
             }
 
             self.update_html(route_match, &mut html).await;
+
+            let init_data_script = generate_init_data_script();
+
+            // Inject the init data script into the HTML
+            if !init_data_script.is_empty() {
+                // Try to inject before closing </head> tag first
+                if let Some(head_pos) = html.find("</head>") {
+                    html.insert_str(head_pos, &init_data_script);
+                } else if let Some(body_pos) = html.find("</body>") {
+                    // If no </head> tag, inject before closing </body> tag
+                    html.insert_str(body_pos, &init_data_script);
+                } else {
+                    // If no head or body tags, append to the end
+                    html.push_str(&init_data_script);
+                }
+            }
 
             return Some(html);
         };
@@ -301,25 +318,5 @@ impl ApexServerRouter {
         };
 
         parent_content.replace_range(start..end, child_content);
-    }
-
-    // Get the matched portion of a path after matching a pattern
-    // For example: pattern="/{name}/{age}", path="/john/23/calculator" returns "/john/23"
-    fn get_matched_path(pattern: &str, path: &str) -> String {
-        let pattern_segments: Vec<&str> = pattern.trim_start_matches('/').split('/').collect();
-        let path_segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-
-        if path_segments.len() < pattern_segments.len() {
-            return String::from("/");
-        }
-
-        // Take only the number of segments that match the pattern length
-        let matched_segments = &path_segments[..pattern_segments.len()];
-
-        if matched_segments.is_empty() {
-            String::from("/")
-        } else {
-            format!("/{}", matched_segments.join("/"))
-        }
     }
 }
