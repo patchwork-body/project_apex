@@ -2,8 +2,8 @@ use syn::{Expr, FnArg, ItemFn, Pat, PatIdent};
 
 /// A component slot extracted from function parameters
 pub(crate) struct ComponentSlot {
-    pub name: PatIdent,
-    pub default: Option<Expr>,
+    pub _name: PatIdent,
+    pub _default: Option<Expr>,
 }
 
 /// Parse slots from function parameters that have #[slot] attribute
@@ -56,8 +56,8 @@ pub(crate) fn parse_slots(input: &ItemFn) -> Vec<ComponentSlot> {
                 // Extract the parameter name and type
                 if let Pat::Ident(pat_ident) = &*pat_type.pat {
                     slots.push(ComponentSlot {
-                        name: pat_ident.clone(),
-                        default: default_value,
+                        _name: pat_ident.clone(),
+                        _default: default_value,
                     });
                 }
             }

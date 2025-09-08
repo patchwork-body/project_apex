@@ -3,7 +3,7 @@
 fn main() {
     #[cfg(target_arch = "wasm32")]
     {
-        use calculator::RootPageRoute;
-        let mut router = apex::apex_router::ApexClientRouter::new(Box::new(RootPageRoute));
+        use calculator::routes::root::RootPageRoute;
+        apex::apex_router::ApexClientRouter::new(Box::new(RootPageRoute));
     }
 }

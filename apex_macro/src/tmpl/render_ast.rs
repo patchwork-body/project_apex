@@ -346,9 +346,9 @@ pub(crate) fn render_ast(
                                             apex::web_sys::console::log_1(&format!("assigning event listener for event name: {}", #event_name).into());
 
                                             let handler_fn = (#handler_tokens).clone();
-                                            let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                                            let closure = Closure::wrap(Box::new(move |event: apex::web_sys::Event| {
                                                 handler_fn(event);
-                                            }) as Box<dyn FnMut(web_sys::Event)>);
+                                            }) as Box<dyn FnMut(apex::web_sys::Event)>);
 
                                             if let Some(element) = elements_map.get(&element_counter.to_string()).cloned() {
                                                 let _ = element.add_event_listener_with_callback(

@@ -1,6 +1,6 @@
 /// Macro to create event handlers that capture signals and execute closures
 ///
-/// Returns an `Action` type (alias for `Rc<dyn Fn(web_sys::Event)>`) that can be used
+/// Returns an `Action` type (alias for `Rc<dyn Fn(apex::web_sys::Event)>`) that can be used
 /// in component props for event handlers.
 ///
 /// Usage examples:
@@ -47,7 +47,7 @@ macro_rules! action {
     ($signal:ident => $body:block) => {
         {
             let $signal = $signal.clone();
-            ::std::rc::Rc::new(move |event: web_sys::Event| $body)
+            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
         }
     };
 
@@ -55,7 +55,7 @@ macro_rules! action {
     ($($signal:ident),+ => $body:block) => {
         {
             $(let $signal = $signal.clone();)+
-            ::std::rc::Rc::new(move |event: web_sys::Event| $body)
+            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
         }
     };
 
@@ -63,7 +63,7 @@ macro_rules! action {
     ($signal:ident as $captured:ident => $body:block) => {
         {
             let $captured = $signal.clone();
-            ::std::rc::Rc::new(move |event: web_sys::Event| $body)
+            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
         }
     };
 
@@ -71,7 +71,7 @@ macro_rules! action {
     ($($signal:ident as $captured:ident),+ => $body:block) => {
         {
             $(let $captured = $signal.clone();)+
-            ::std::rc::Rc::new(move |event: web_sys::Event| $body)
+            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
         }
     };
 
@@ -79,7 +79,7 @@ macro_rules! action {
     ($signal:ident => |$event_param:ident| $body:block) => {
         {
             let $signal = $signal.clone();
-            ::std::rc::Rc::new(move |$event_param: web_sys::Event| $body)
+            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
         }
     };
 
@@ -87,7 +87,7 @@ macro_rules! action {
     ($($signal:ident),+ => |$event_param:ident| $body:block) => {
         {
             $(let $signal = $signal.clone();)+
-            ::std::rc::Rc::new(move |$event_param: web_sys::Event| $body)
+            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
         }
     };
 
@@ -95,7 +95,7 @@ macro_rules! action {
     ($signal:ident as $captured:ident => |$event_param:ident| $body:block) => {
         {
             let $captured = $signal.clone();
-            ::std::rc::Rc::new(move |$event_param: web_sys::Event| $body)
+            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
         }
     };
 
@@ -103,7 +103,7 @@ macro_rules! action {
     ($($signal:ident as $captured:ident),+ => |$event_param:ident| $body:block) => {
         {
             $(let $captured = $signal.clone();)+
-            ::std::rc::Rc::new(move |$event_param: web_sys::Event| $body)
+            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
         }
     };
 }
