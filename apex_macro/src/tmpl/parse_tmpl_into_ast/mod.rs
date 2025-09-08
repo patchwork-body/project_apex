@@ -26,7 +26,7 @@ pub(crate) fn parse_tmpl_into_ast(input: &str) -> Vec<TmplAst> {
     let re = Regex::new(r"\{([^}]*)\}").unwrap();
     let input = re
         .replace_all(&input, |caps: &regex::Captures<'_>| {
-            let expression = caps.get(1).unwrap().as_str().trim();
+            let expression = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
             format!("{{{expression}}}")
         })
         .to_string();
