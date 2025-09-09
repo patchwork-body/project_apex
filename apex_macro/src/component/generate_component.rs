@@ -4,7 +4,7 @@ use syn::ItemFn;
 
 use crate::{
     common::to_pascal_case,
-    component::{parse_props::parse_props, parse_slots::parse_slots, validate_component_function},
+    component::{parse_props::parse_props, validate_component_function},
 };
 
 /// Generate a component from a function
@@ -19,7 +19,6 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
 
     // Parse props and slots from function parameters
     let all_props = parse_props(&input);
-    let _slots = parse_slots(&input);
 
     // Separate regular props from server context and route_data props
     let props: Vec<_> = all_props.iter().collect();
