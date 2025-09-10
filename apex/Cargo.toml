@@ -7,7 +7,7 @@ edition = "2024"
 # WASM-compatible dependencies (available for all targets)
 wasm-bindgen = "^0.2"
 web-sys = { version = "^0.3", features = [
-  "Window", "Document", "Element", "HtmlButtonElement", "HtmlDivElement", "Comment", "TreeWalker", "NodeFilter", "Node", "NodeList", "Text", "Event", "console", "NodeList", "NodeIterator", "History", "Location", "PopStateEvent", "CustomEvent", "CustomEventInit", "Response", "Request", "RequestInit", "Headers", "EventListener"
+  "Window", "Document", "Element", "HtmlButtonElement", "HtmlDivElement", "Comment", "TreeWalker", "NodeFilter", "Node", "NodeList", "Text", "Event", "console", "NodeList", "NodeIterator", "History", "Location", "PopStateEvent", "CustomEvent", "CustomEventInit", "Response", "Request", "RequestInit", "Headers", "EventListener", "MouseEvent"
 ] }
 js-sys = "^0.3"
 bytes = "^1.10"

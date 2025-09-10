@@ -4,6 +4,24 @@ use apex::wasm_bindgen::prelude::Closure;
 use apex::web_sys;
 use std::fmt::{self, Display};
 
+fn schedule_timeout(ms: i32, cb: impl Fn() + 'static) -> Option<i32> {
+    let window = web_sys::window()?;
+    let closure = Closure::wrap(Box::new(cb) as Box<dyn Fn()>);
+
+    let id = window
+        .set_timeout_with_callback_and_timeout_and_arguments_0(closure.as_ref().unchecked_ref(), ms)
+        .ok()?;
+    closure.forget();
+
+    Some(id)
+}
+
+fn cancel_timeout(id: Option<i32>) {
+    if let (Some(window), Some(id)) = (web_sys::window(), id) {
+        window.clear_timeout_with_handle(id);
+    }
+}
+
 #[derive(PartialEq, Clone, Debug)]
 enum Operator {
     Add,
@@ -86,8 +104,12 @@ impl Expression {
     }
 
     fn set_operator(&mut self, operator: Operator) {
-        if self.left.is_some()
-            && self.left.as_ref().unwrap().operator.as_ref().unwrap() != &Operator::Subtract
+        if self
+            .left
+            .as_ref()
+            .and_then(|l| l.operator.as_ref())
+            .is_some()
+            && self.left.as_ref().and_then(|l| l.operator.as_ref()) != Some(&Operator::Subtract)
             && operator == Operator::Subtract
             && self.right.is_empty()
         {
@@ -218,29 +240,38 @@ impl Expression {
         let mut values = Vec::new();
         let mut operators = Vec::new();
         let mut node = Some(self);
+
         while let Some(n) = node {
             values.push(parse_value(&n.right, n.is_negative));
+
             if let Some(op) = &n.operator {
                 operators.push((op.clone(), n.rank));
             }
+
             node = n.left.as_deref();
         }
+
         values.reverse();
         operators.reverse();
 
         // Precedence climbing evaluation
         while !operators.is_empty() && values.len() > 1 {
             // Find the highest precedence operator
-            let max_rank = operators.iter().map(|(_, rank)| *rank).max().unwrap();
-            let idx = operators
-                .iter()
-                .position(|(_, rank)| *rank == max_rank)
-                .unwrap();
+            let Some(max_rank) = operators.iter().map(|(_, rank)| *rank).max() else {
+                break;
+            };
+
+            let Some(idx) = operators.iter().position(|(_, rank)| *rank == max_rank) else {
+                break;
+            };
+
             let (op, _) = &operators[idx];
             let result = op.apply(values[idx], values[idx + 1]);
+
             values.splice(idx..=idx + 1, [result]);
             operators.remove(idx);
         }
+
         values[0]
     }
 }
@@ -265,7 +296,7 @@ pub fn calculator() {
         });
     });
 
-    let add_symbol = action!(expression, prev_expression => |event| {
+    let add_symbol = action!(expression, prev_expression => |event: web_sys::MouseEvent| {
         let symbol = event.current_target().unwrap().dyn_into::<web_sys::HtmlButtonElement>().unwrap().inner_text();
 
         if prev_expression.get().is_some() {
@@ -297,9 +328,7 @@ pub fn calculator() {
     let timeout_id = signal!(None::<i32>);
 
     let remove_last_symbol = action!(expression, prev_expression, timeout_id => |_event| {
-        if let Some(id) = timeout_id.get() {
-            web_sys::window().unwrap().clear_timeout_with_handle(id);
-        }
+        cancel_timeout(timeout_id.get());
 
         if prev_expression.get().is_some() {
             prev_expression.set(None);
@@ -317,22 +346,12 @@ pub fn calculator() {
         let expression = expression.clone();
         let prev_expression = prev_expression.clone();
 
-        let closure = Closure::wrap(Box::new(move || {
+        if let Some(id) = schedule_timeout(1000, move || {
             prev_expression.set(None);
             expression.set(Expression::default());
-        }) as Box<dyn Fn()>);
-
-        let id = web_sys::window()
-            .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                closure.as_ref().unchecked_ref(),
-                1000,
-            )
-            .unwrap();
-
-        timeout_id.set(Some(id));
-
-        closure.forget();
+        }) {
+            timeout_id.set(Some(id));
+        }
     });
 
     let negative_value = action!(expression => |_event| {

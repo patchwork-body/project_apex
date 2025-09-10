@@ -32,22 +32,54 @@ pub(crate) fn parse_props(input: &ItemFn) -> Vec<ComponentProp> {
                         syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
                     ) {
                         for meta in args {
-                            if let syn::Meta::NameValue(name_value) = meta {
-                                if name_value.path.is_ident("default") {
-                                    if let syn::Expr::Lit(syn::ExprLit {
-                                        lit: syn::Lit::Str(lit_str),
-                                        ..
-                                    }) = &name_value.value
-                                    {
-                                        // Parse the string as an expression
-                                        if let Ok(expr) = syn::parse_str::<Expr>(&lit_str.value()) {
+                            match meta {
+                                // Shorthand: #[prop(default)] -> Default::default(),
+                                // but for EventHandler<_> use apex::helpers::noop_event()
+                                syn::Meta::Path(path) => {
+                                    if path.is_ident("default") {
+                                        let expr_str = match &*pat_type.ty {
+                                            syn::Type::Path(type_path) => {
+                                                let last_segment = type_path.path.segments.last();
+                                                if let Some(seg) = last_segment {
+                                                    let name = seg.ident.to_string();
+                                                    if name == "EventHandler" {
+                                                        "apex::helpers::noop_event()"
+                                                    } else {
+                                                        "Default::default()"
+                                                    }
+                                                } else {
+                                                    "Default::default()"
+                                                }
+                                            }
+                                            _ => "Default::default()",
+                                        };
+
+                                        if let Ok(expr) = syn::parse_str::<Expr>(expr_str) {
                                             default_value = Some(expr);
                                         }
-                                    } else {
-                                        // Direct expression
-                                        default_value = Some(name_value.value);
                                     }
                                 }
+                                syn::Meta::NameValue(name_value) => {
+                                    if name_value.path.is_ident("default") {
+                                        if let syn::Expr::Lit(syn::ExprLit {
+                                            lit: syn::Lit::Str(lit_str),
+                                            ..
+                                        }) = &name_value.value
+                                        {
+                                            // Parse the string as an expression
+                                            if let Ok(expr) =
+                                                syn::parse_str::<Expr>(&lit_str.value())
+                                            {
+                                                default_value = Some(expr);
+                                            }
+                                        } else {
+                                            // Direct expression
+                                            default_value = Some(name_value.value);
+                                        }
+                                    }
+                                }
+                                // Ignore lists for now
+                                syn::Meta::List(_) => {}
                             }
                         }
                     }

@@ -3,12 +3,12 @@ use apex::prelude::*;
 #[component]
 pub fn button(
     #[prop] symbol: Signal<String>,
-    #[prop(default = false)] wide: bool,
-    #[prop(default = false)] primary: bool,
-    #[prop(default = false)] secondary: bool,
-    #[prop(default = noop_action())] onclick: Action,
-    #[prop(default = noop_action())] onmousedown: Action,
-    #[prop(default = noop_action())] onmouseup: Action,
+    #[prop(default)] wide: bool,
+    #[prop(default)] primary: bool,
+    #[prop(default)] secondary: bool,
+    #[prop(default)] onclick: EventHandler<apex::web_sys::Event>,
+    #[prop(default)] onmousedown: EventHandler<apex::web_sys::Event>,
+    #[prop(default)] onmouseup: EventHandler<apex::web_sys::Event>,
 ) {
     let mut classes = vec!["button"];
 
@@ -22,6 +22,11 @@ pub fn button(
 
     if secondary {
         classes.push("button-secondary");
+    }
+
+    if let Some(data_value) = props.get("data-value").as_ref() {
+        let data_value = data_value.downcast_ref::<String>();
+        apex::web_sys::console::log_1(&data_value.into());
     }
 
     tmpl! {

@@ -131,30 +131,46 @@ pub(crate) fn render_ast(
                     for (key, value) in attributes {
                         let method_name = syn::Ident::new(key, proc_macro2::Span::call_site());
 
-                        let value_expr = match value {
+                        builder_chain = match value {
                             Attribute::Empty => continue,
                             Attribute::Literal(literal) => {
                                 quote! {
-                                    #literal.into()
+                                    if #builder_chain.has_prop(#key.to_string()) {
+                                        println!("has prop {}", #key.to_string());
+                                        #builder_chain.#method_name(#literal.into())
+                                    } else {
+                                        println!("no prop {}", #key.to_string());
+                                        #builder_chain.set_prop(#key.to_string(), Box::new(#literal.to_string()))
+                                    }
                                 }
                             }
                             Attribute::Expression(expr) => {
                                 if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
-                                    quote! { #expr_tokens }
+                                    quote! {
+                                        if #builder_chain.has_prop(#key.to_string()) {
+                                            #builder_chain.#method_name(#expr_tokens)
+                                        } else {
+                                            #builder_chain.set_prop(#key.to_string(), Box::new(#expr_tokens))
+                                        }
+                                    }
                                 } else {
                                     continue;
                                 }
                             }
                             Attribute::EventListener(handler) => {
                                 if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
-                                    quote! { #handler_tokens }
+                                    quote! {
+                                        if #builder_chain.has_prop(#key.to_string()) {
+                                            #builder_chain.#method_name(#handler_tokens)
+                                        } else {
+                                            #builder_chain.set_prop(#key.to_string(), Box::new(#handler_tokens))
+                                        }
+                                    }
                                 } else {
                                     continue;
                                 }
                             }
                         };
-
-                        builder_chain = quote! { #builder_chain.#method_name(#value_expr) };
                     }
 
                     // Add builder calls for slots

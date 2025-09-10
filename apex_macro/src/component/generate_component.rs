@@ -22,6 +22,10 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
 
     // Separate regular props from server context and route_data props
     let props: Vec<_> = all_props.iter().collect();
+    let props_names = props
+        .iter()
+        .map(|prop| prop.name.ident.to_string())
+        .collect::<Vec<_>>();
 
     // Convert function name to PascalCase for the struct
     let struct_name = syn::Ident::new(&to_pascal_case(&fn_name.to_string()), fn_name.span());
@@ -73,6 +77,12 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         }
     });
 
+    // Generate builder default field values
+    let builder_default_fields = props.iter().map(|prop| {
+        let name = &prop.name;
+        quote! { #name: None }
+    });
+
     // Generate local variable bindings for props and slots in render method
     let prop_bindings = props
         .iter()
@@ -82,35 +92,47 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
                 let #name = self.#name.clone();
             }
         })
+        .chain(std::iter::once(quote! {
+            let props = &self.props;
+        }))
         .collect::<Vec<_>>();
-
-    // Generate builder default field values
-    let builder_default_fields = props.iter().map(|prop| {
-        let name = &prop.name;
-        quote! { #name: None }
-    });
 
     // Generate the component struct and impl
     let output = quote! {
         #vis struct #struct_name {
+            pub props: std::collections::HashMap<String, Box<dyn std::any::Any>>,
             #(#struct_fields),*
         }
 
         pub struct #builder_name {
+            pub props: std::collections::HashMap<String, Box<dyn std::any::Any>>,
+            pub props_names: Vec<String>,
             #(#builder_fields),*
         }
 
         impl #builder_name {
             pub fn new() -> Self {
                 Self {
+                    props: std::collections::HashMap::new(),
+                    props_names: vec![#(#props_names.to_string()),*],
                     #(#builder_default_fields),*
                 }
             }
 
             #(#builder_setters)*
 
+            pub fn has_prop(&self, prop_name: String) -> bool {
+                self.props_names.contains(&prop_name)
+            }
+
+            pub fn set_prop(mut self, prop_name: String, value: Box<dyn std::any::Any>) -> Self {
+                self.props.insert(prop_name, value);
+                self
+            }
+
             pub fn build(self) -> #struct_name {
                 #struct_name {
+                    props: self.props,
                     #(#build_field_inits),*
                 }
             }

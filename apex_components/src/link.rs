@@ -5,7 +5,7 @@ use apex::wasm_bindgen;
 use apex::web_sys;
 
 #[component]
-pub fn Link(#[prop] href: String, #[prop] text: String) {
+pub fn link(#[prop] href: String, #[prop] text: String) {
     let handle_click = action!(href => |event| {
             event.prevent_default();
             let detail = wasm_bindgen::JsValue::from_str(&href);

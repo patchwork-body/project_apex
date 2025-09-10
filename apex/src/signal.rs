@@ -86,6 +86,12 @@ impl From<&str> for Signal<String> {
     }
 }
 
+impl From<String> for Signal<String> {
+    fn from(s: String) -> Self {
+        Signal::new(s)
+    }
+}
+
 /// Register an effect that runs whenever any of the accessed signals change.
 pub fn effect<F: Fn() + 'static>(f: F) -> usize {
     // Assign a unique id to this effect
