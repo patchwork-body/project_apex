@@ -7,6 +7,7 @@ use super::match_chars::match_chars;
 use super::parse_conditional_directive::parse_conditional_directive;
 use super::parse_directive_name::parse_directive_name;
 use super::parse_element_opening_tag::parse_element_opening_tag;
+use super::parse_slot_interpolation::parse_slot_interpolation;
 use super::parse_slot_name::parse_slot_name;
 
 #[derive(PartialEq)]
@@ -83,10 +84,8 @@ pub(crate) fn process_chars_until(
                         text = String::new();
                     }
                 } else if chars.peek() == Some(&'{') {
-                    if has_temp_whitespace && state == ProcessCharsUntilState::AfterExpression {
-                        ast.push(TmplAst::Text(" ".to_owned()));
-                        has_temp_whitespace = false;
-                    } else if !text.is_empty() {
+                    // Don't add whitespace for directive expressions - handle it later
+                    if !text.is_empty() {
                         ast.push(TmplAst::Text(text));
                         text = String::new();
                     }
@@ -113,16 +112,46 @@ pub(crate) fn process_chars_until(
 
                 // Check if it's a slot tag
                 if lookahead.peek() == Some(&'#') {
-                    let slot_name = parse_slot_name(chars);
-                    let closing_tag = format!("</#{slot_name}>");
+                    // Check if it's slot interpolation (<#slot) or slot definition (<#slot_name)
+                    let mut lookahead2 = lookahead.clone();
+                    lookahead2.next(); // consume '#'
 
-                    let (children, _) = process_chars_until(chars, Some(&[&closing_tag]));
+                    // Check if it starts with "slot"
+                    let is_slot_interpolation = lookahead2.peek() == Some(&'s') && {
+                        let mut temp = lookahead2.clone();
+                        temp.next() == Some('s')
+                            && temp.next() == Some('l')
+                            && temp.next() == Some('o')
+                            && temp.next() == Some('t')
+                            && (temp.peek() == Some(&'>')
+                                || temp.peek() == Some(&'/')
+                                || temp.peek().is_some_and(|c| c.is_whitespace()))
+                    };
 
-                    ast.push(TmplAst::Slot {
-                        name: slot_name,
-                        children,
-                    });
+                    if is_slot_interpolation {
+                        if has_temp_whitespace {
+                            ast.push(TmplAst::Text(" ".to_owned()));
+                            has_temp_whitespace = false;
+                        }
+                        ast.push(parse_slot_interpolation(chars));
+                        state = ProcessCharsUntilState::AfterExpression;
+                    } else {
+                        // It's a slot definition
+                        let slot_name = parse_slot_name(chars);
+                        let closing_tag = format!("</#{slot_name}>");
+
+                        let (children, _) = process_chars_until(chars, Some(&[&closing_tag]));
+
+                        ast.push(TmplAst::Slot {
+                            name: Some(slot_name),
+                            children,
+                        });
+                        state = ProcessCharsUntilState::AfterExpression;
+                    }
                 } else {
+                    // Clear temp whitespace for regular elements since they don't preserve it
+                    has_temp_whitespace = false;
+
                     let (element_name, element_attrs, is_self_closing) =
                         parse_element_opening_tag(chars);
 
@@ -143,6 +172,7 @@ pub(crate) fn process_chars_until(
                             self_closing: is_self_closing,
                             children,
                         });
+                        state = ProcessCharsUntilState::AfterExpression;
                     } else {
                         ast.push(TmplAst::Element {
                             tag: element_name,
@@ -151,10 +181,9 @@ pub(crate) fn process_chars_until(
                             self_closing: is_self_closing,
                             children: Vec::new(),
                         });
+                        state = ProcessCharsUntilState::AfterExpression;
                     }
                 }
-
-                state = ProcessCharsUntilState::Unknown;
             }
             ProcessCharsUntilState::Expression => {
                 if chars.peek() == Some(&'{') {
@@ -167,6 +196,8 @@ pub(crate) fn process_chars_until(
                 } else if chars.peek() == Some(&'#') {
                     chars.next(); // consume '#'
                     expression_type = ExpressionType::Directive;
+                    // Clear temp whitespace for directives since they don't preserve it
+                    has_temp_whitespace = false;
 
                     let directive_name = parse_directive_name(chars);
 
@@ -190,12 +221,28 @@ pub(crate) fn process_chars_until(
                     if !text.is_empty() {
                         match expression_type {
                             ExpressionType::Ordinary => {
+                                // Add whitespace for regular expressions
+                                if has_temp_whitespace {
+                                    ast.push(TmplAst::Text(" ".to_owned()));
+                                    has_temp_whitespace = false;
+                                }
                                 ast.push(TmplAst::Expression(text));
                             }
                             ExpressionType::Slot => {
-                                ast.push(TmplAst::SlotInterpolation { slot_name: text });
+                                // Add whitespace for slot expressions
+                                if has_temp_whitespace {
+                                    ast.push(TmplAst::Text(" ".to_owned()));
+                                    has_temp_whitespace = false;
+                                }
+                                ast.push(TmplAst::SlotInterpolation {
+                                    slot_name: Some(text),
+                                    default_children: None,
+                                });
                             }
-                            ExpressionType::Directive => {}
+                            ExpressionType::Directive => {
+                                // Don't add whitespace for directives
+                                has_temp_whitespace = false;
+                            }
                         }
 
                         expression_type = ExpressionType::Ordinary;
@@ -345,13 +392,13 @@ mod tests {
 
     #[test]
     fn slot_with_text() {
-        let mut chars = "<#slot>Hello, world!</#slot>".chars().peekable();
+        let mut chars = "<#slot_name>Hello, world!</#slot_name>".chars().peekable();
         let (ast, _) = process_chars_until(&mut chars, None);
 
         assert_eq!(
             ast,
             vec![TmplAst::Slot {
-                name: "slot".to_owned(),
+                name: Some("slot_name".to_owned()),
                 children: vec![TmplAst::Text("Hello, world!".to_owned())],
             }]
         );
@@ -359,13 +406,15 @@ mod tests {
 
     #[test]
     fn slots_with_nested_elements() {
-        let mut chars = "<#slot><p>Hello, world!</p></#slot>".chars().peekable();
+        let mut chars = "<#slot_name><p>Hello, world!</p></#slot_name>"
+            .chars()
+            .peekable();
         let (ast, _) = process_chars_until(&mut chars, None);
 
         assert_eq!(
             ast,
             vec![TmplAst::Slot {
-                name: "slot".to_owned(),
+                name: Some("slot_name".to_owned()),
                 children: vec![TmplAst::Element {
                     tag: "p".to_owned(),
                     attributes: Attributes::new(),
@@ -639,8 +688,8 @@ mod tests {
     }
 
     #[test]
-    fn slot_interpolation() {
-        let mut chars = "<div>{@slot_name}</div>".chars().peekable();
+    fn unnamed_slot_interpolation() {
+        let mut chars = "<div><#slot>{1 + 1}</#slot></div>".chars().peekable();
         let (ast, _) = process_chars_until(&mut chars, None);
 
         assert_eq!(
@@ -651,8 +700,83 @@ mod tests {
                 is_component: false,
                 self_closing: false,
                 children: vec![TmplAst::SlotInterpolation {
-                    slot_name: "slot_name".to_owned(),
+                    slot_name: None,
+                    default_children: Some(vec![TmplAst::Expression("1 + 1".to_owned())]),
                 }],
+            }]
+        );
+    }
+
+    #[test]
+    fn slot_interpolation() {
+        let mut chars = "<div><#slot slot_name /></div>".chars().peekable();
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![TmplAst::SlotInterpolation {
+                    slot_name: Some("slot_name".to_owned()),
+                    default_children: None,
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn expression_with_slot_interpolation_and_whitespace() {
+        let mut chars = "<div>{1 + 1} <#slot slot_name /> {2 + 2}</div>"
+            .chars()
+            .peekable();
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![
+                    TmplAst::Expression("1 + 1".to_owned()),
+                    TmplAst::Text(" ".to_owned()),
+                    TmplAst::SlotInterpolation {
+                        slot_name: Some("slot_name".to_owned()),
+                        default_children: None,
+                    },
+                    TmplAst::Text(" ".to_owned()),
+                    TmplAst::Expression("2 + 2".to_owned()),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn slot_interpolation_with_default_children() {
+        let mut chars = "<div>Hello, <#slot>John Doe</#slot>!</div>"
+            .chars()
+            .peekable();
+        let (ast, _) = process_chars_until(&mut chars, None);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::Element {
+                tag: "div".to_owned(),
+                attributes: Attributes::new(),
+                is_component: false,
+                self_closing: false,
+                children: vec![
+                    TmplAst::Text("Hello, ".to_owned()),
+                    TmplAst::SlotInterpolation {
+                        slot_name: None,
+                        default_children: Some(vec![TmplAst::Text("John Doe".to_owned())]),
+                    },
+                    TmplAst::Text("!".to_owned()),
+                ],
             }]
         );
     }
@@ -820,13 +944,15 @@ mod tests {
 
     #[test]
     fn slot_with_whitespace_between_expressions() {
-        let mut chars = "<#slot>{1 + 1} {2 + 2}</#slot>".chars().peekable();
+        let mut chars = "<#slot_name>{1 + 1} {2 + 2}</#slot_name>"
+            .chars()
+            .peekable();
         let (ast, _) = process_chars_until(&mut chars, None);
 
         assert_eq!(
             ast,
             vec![TmplAst::Slot {
-                name: "slot".to_owned(),
+                name: Some("slot_name".to_owned()),
                 children: vec![
                     TmplAst::Expression("1 + 1".to_owned()),
                     TmplAst::Text(" ".to_owned()),
@@ -888,32 +1014,6 @@ mod tests {
             }]
         );
     }
-
-    #[test]
-    fn expression_with_slot_interpolation_and_whitespace() {
-        let mut chars = "<div>{1 + 1} {@slot_name} {2 + 2}</div>".chars().peekable();
-        let (ast, _) = process_chars_until(&mut chars, None);
-
-        assert_eq!(
-            ast,
-            vec![TmplAst::Element {
-                tag: "div".to_owned(),
-                attributes: Attributes::new(),
-                is_component: false,
-                self_closing: false,
-                children: vec![
-                    TmplAst::Expression("1 + 1".to_owned()),
-                    TmplAst::Text(" ".to_owned()),
-                    TmplAst::SlotInterpolation {
-                        slot_name: "slot_name".to_owned(),
-                    },
-                    TmplAst::Text(" ".to_owned()),
-                    TmplAst::Expression("2 + 2".to_owned()),
-                ],
-            }]
-        );
-    }
-
     #[test]
     fn conditional_directive() {
         let mut chars = "{#if true}Hello, world!{#endif}".chars().peekable();

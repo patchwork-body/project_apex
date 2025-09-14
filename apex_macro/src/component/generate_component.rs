@@ -18,72 +18,100 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
     let vis = &input.vis;
 
     // Parse props and slots from function parameters
-    let all_props = parse_props(&input);
-
-    // Separate regular props from server context and route_data props
-    let props: Vec<_> = all_props.iter().collect();
-    let props_names = props
-        .iter()
-        .map(|prop| prop.name.ident.to_string())
-        .collect::<Vec<_>>();
+    let props = parse_props(&input);
 
     // Convert function name to PascalCase for the struct
     let struct_name = syn::Ident::new(&to_pascal_case(&fn_name.to_string()), fn_name.span());
     let builder_name = syn::Ident::new(&format!("{struct_name}Builder"), fn_name.span());
 
     // Generate struct fields from props and slots
-    let struct_fields = props.iter().map(|prop| {
-        let name = &prop.name;
-        let ty = &prop.ty;
+    let struct_fields = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            let ty = &prop.ty;
 
-        quote! {
-            pub #name: #ty
-        }
-    });
+            quote! {
+                pub #name: #ty
+            }
+        })
+        .chain(std::iter::once(quote! {
+            pub render_children: Option<std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String) + 'static>>>,
+            pub hydrate_children: Option<std::rc::Rc<Box<dyn for<'a> Fn(&'a std::collections::HashMap<String, apex::web_sys::Text>, &'a std::collections::HashMap<String, apex::web_sys::Element>) + 'static>>>,
+        }));
 
     // Generate builder struct fields (Option for all)
-    let builder_fields = props.iter().map(|prop| {
-        let name = &prop.name;
-        let ty = &prop.ty;
-        quote! {
-            #name: Option<#ty>
-        }
-    });
+    let builder_fields = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            let ty = &prop.ty;
+
+            quote! {
+                #name: Option<#ty>
+            }
+        })
+        .chain(std::iter::once(quote! {
+            render_children: Option<std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String) + 'static>>>,
+            hydrate_children: Option<std::rc::Rc<Box<dyn for<'a> Fn(&'a std::collections::HashMap<String, apex::web_sys::Text>, &'a std::collections::HashMap<String, apex::web_sys::Element>) + 'static>>>,
+        }));
 
     // Generate builder setter methods
     let builder_setters = props.iter().map(|prop| {
         let name = &prop.name;
         let ty = &prop.ty;
+
         quote! {
             pub fn #name(mut self, value: #ty) -> Self {
                 self.#name = Some(value);
                 self
             }
         }
-    });
-
-    // Generate builder build method
-    let build_field_inits = props.iter().map(|prop| {
-        let name = &prop.name;
-        if let Some(default) = &prop.default {
-            quote! {
-                #name: self.#name.unwrap_or_else(|| #default)
-            }
-        } else {
-            let name_str = name.ident.to_string();
-            quote! {
-                #name: self.#name.expect(&format!("Required prop '{}' not set", #name_str))
-            }
-        }
-    });
+     }).chain(std::iter::once(quote! {
+         pub fn render_children(mut self, value: Box<dyn for<'a> Fn(&'a mut String) + 'static>) -> Self {
+             self.render_children = Some(std::rc::Rc::new(value));
+             self
+         }
+     })).chain(std::iter::once(quote! {
+         pub fn hydrate_children(mut self, value: Box<dyn for<'a> Fn(&'a std::collections::HashMap<String, apex::web_sys::Text>, &'a std::collections::HashMap<String, apex::web_sys::Element>) + 'static>) -> Self {
+             self.hydrate_children = Some(std::rc::Rc::new(value));
+             self
+         }
+     }));
 
     // Generate builder default field values
-    let builder_default_fields = props.iter().map(|prop| {
-        let name = &prop.name;
-        quote! { #name: None }
-    });
+    let builder_default_fields = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            quote! { #name: None }
+        })
+        .chain(std::iter::once(quote! {
+            render_children: None,
+            hydrate_children: None,
+        }));
 
-    // Generate local variable bindings for props and slots in render method
+    // Generate builder build method
+    let build_struct_fields = props
+        .iter()
+        .map(|prop| {
+            let name = &prop.name;
+            if let Some(default) = &prop.default {
+                quote! {
+                    #name: self.#name.unwrap_or_else(|| #default)
+                }
+            } else {
+                let name_str = name.ident.to_string();
+                quote! {
+                    #name: self.#name.expect(&format!("Required prop '{}' not set", #name_str))
+                }
+            }
+        })
+        .chain(std::iter::once(quote! {
+            render_children: self.render_children.clone(),
+            hydrate_children: self.hydrate_children.clone(),
+        }));
+
     let prop_bindings = props
         .iter()
         .map(|prop| {
@@ -93,47 +121,36 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
             }
         })
         .chain(std::iter::once(quote! {
-            let props = &self.props;
+            #[cfg(not(target_arch = "wasm32"))]
+            let render_children = self.render_children.clone();
+
+            #[cfg(target_arch = "wasm32")]
+            let hydrate_children = self.hydrate_children.clone();
         }))
         .collect::<Vec<_>>();
 
     // Generate the component struct and impl
     let output = quote! {
         #vis struct #struct_name {
-            pub props: std::collections::HashMap<String, Box<dyn std::any::Any>>,
             #(#struct_fields),*
         }
 
         pub struct #builder_name {
-            pub props: std::collections::HashMap<String, Box<dyn std::any::Any>>,
-            pub props_names: Vec<String>,
             #(#builder_fields),*
         }
 
         impl #builder_name {
             pub fn new() -> Self {
                 Self {
-                    props: std::collections::HashMap::new(),
-                    props_names: vec![#(#props_names.to_string()),*],
                     #(#builder_default_fields),*
                 }
             }
 
             #(#builder_setters)*
 
-            pub fn has_prop(&self, prop_name: String) -> bool {
-                self.props_names.contains(&prop_name)
-            }
-
-            pub fn set_prop(mut self, prop_name: String, value: Box<dyn std::any::Any>) -> Self {
-                self.props.insert(prop_name, value);
-                self
-            }
-
             pub fn build(self) -> #struct_name {
                 #struct_name {
-                    props: self.props,
-                    #(#build_field_inits),*
+                    #(#build_struct_fields),*
                 }
             }
         }

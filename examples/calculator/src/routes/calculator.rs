@@ -284,7 +284,7 @@ pub fn calculator() {
     let expression = signal!(Expression::default());
     let prev_expression = signal!(None::<Expression>);
 
-    let set_operator = action!(expression, prev_expression => |event| {
+    let set_operator = action!(expression, prev_expression @ web_sys::MouseEvent => |event| {
         let symbol = event.current_target().unwrap().dyn_into::<web_sys::HtmlButtonElement>().unwrap().inner_text();
 
         prev_expression.set(None);
@@ -296,7 +296,7 @@ pub fn calculator() {
         });
     });
 
-    let add_symbol = action!(expression, prev_expression => |event: web_sys::MouseEvent| {
+    let add_symbol = action!(expression, prev_expression @ web_sys::MouseEvent => |event| {
         let symbol = event.current_target().unwrap().dyn_into::<web_sys::HtmlButtonElement>().unwrap().inner_text();
 
         if prev_expression.get().is_some() {
@@ -327,7 +327,7 @@ pub fn calculator() {
 
     let timeout_id = signal!(None::<i32>);
 
-    let remove_last_symbol = action!(expression, prev_expression, timeout_id => |_event| {
+    let remove_last_symbol = action!(expression, prev_expression, timeout_id @ web_sys::MouseEvent => |_| {
         cancel_timeout(timeout_id.get());
 
         if prev_expression.get().is_some() {
@@ -342,7 +342,7 @@ pub fn calculator() {
         }
     });
 
-    let set_timeout_to_clear_value = action!(expression, prev_expression, timeout_id => |_event| {
+    let set_timeout_to_clear_value = action!(expression, prev_expression, timeout_id @ web_sys::MouseEvent => |_| {
         let expression = expression.clone();
         let prev_expression = prev_expression.clone();
 
@@ -354,7 +354,7 @@ pub fn calculator() {
         }
     });
 
-    let negative_value = action!(expression => |_event| {
+    let negative_value = action!(expression @ web_sys::MouseEvent => |_| {
         expression.update(|v| {
             let mut v = v.clone();
             v.negative_right_value();
@@ -362,7 +362,7 @@ pub fn calculator() {
         });
     });
 
-    let add_decimal_symbol = action!(expression => |_event| {
+    let add_decimal_symbol = action!(expression @ web_sys::MouseEvent => |_| {
         expression.update(|v| {
             let mut v = v.clone();
             if v.right.contains(".") {
@@ -374,7 +374,7 @@ pub fn calculator() {
         });
     });
 
-    let calculate_percentage = action!(expression => |_event| {
+    let calculate_percentage = action!(expression @ web_sys::MouseEvent => |_| {
         expression.update(|v| {
             let mut v = v.clone();
 
@@ -415,7 +415,7 @@ pub fn calculator() {
 
     let display_expression = derive!(expression, { expression.get().get_display_value() });
 
-    let execute_expression = action!(expression, prev_expression => |_event| {
+    let execute_expression = action!(expression, prev_expression @ web_sys::MouseEvent => |_| {
         prev_expression.set(Some(expression.get().clone()));
         let result = expression.get().execute();
 
@@ -439,25 +439,25 @@ pub fn calculator() {
             </div>
 
             <div class="buttons">
-                <Button secondary={true} symbol={clear_symbol.clone()} onmousedown={set_timeout_to_clear_value.clone()} onmouseup={remove_last_symbol.clone()} />
-                <Button secondary={true} symbol="±" onclick={negative_value.clone()} />
-                <Button secondary={true} symbol="%" onclick={calculate_percentage.clone()} />
-                <Button primary={true} symbol="÷" onclick={set_operator.clone()} />
-                <Button symbol="7" onclick={add_symbol.clone()} />
-                <Button symbol="8" onclick={add_symbol.clone()} />
-                <Button symbol="9" onclick={add_symbol.clone()} />
-                <Button primary={true} symbol="×" onclick={set_operator.clone()} />
-                <Button symbol="4" onclick={add_symbol.clone()} />
-                <Button symbol="5" onclick={add_symbol.clone()} />
-                <Button symbol="6" onclick={add_symbol.clone()} />
-                <Button primary={true} symbol="-" onclick={set_operator.clone()} />
-                <Button symbol="1" onclick={add_symbol.clone()} />
-                <Button symbol="2" onclick={add_symbol.clone()} />
-                <Button symbol="3" onclick={add_symbol.clone()} />
-                <Button primary={true} symbol="+" onclick={set_operator.clone()} />
-                <Button wide={true} symbol="0" onclick={add_symbol.clone()} />
-                <Button symbol="." onclick={add_decimal_symbol.clone()} />
-                <Button primary={true} symbol="=" onclick={execute_expression.clone()} />
+                <Button secondary={true} onmousedown={set_timeout_to_clear_value.clone()} onmouseup={remove_last_symbol.clone()}>{clear_symbol.get()}</Button>
+                <Button secondary={true} onclick={negative_value.clone()}>{"±"}</Button>
+                <Button secondary={true} onclick={calculate_percentage.clone()}>%</Button>
+                <Button primary={true} onclick={set_operator.clone()}>{"÷"}</Button>
+                <Button onclick={add_symbol.clone()}>{"7"}</Button>
+                <Button onclick={add_symbol.clone()}>{"8"}</Button>
+                <Button onclick={add_symbol.clone()}>{"9"}</Button>
+                <Button primary={true} onclick={set_operator.clone()}>{"×"}</Button>
+                <Button onclick={add_symbol.clone()}>{"4"}</Button>
+                <Button onclick={add_symbol.clone()}>{"5"}</Button>
+                <Button onclick={add_symbol.clone()}>{"6"}</Button>
+                <Button primary={true} onclick={set_operator.clone()}>{"-"}</Button>
+                <Button onclick={add_symbol.clone()}>{"1"}</Button>
+                <Button onclick={add_symbol.clone()}>{"2"}</Button>
+                <Button onclick={add_symbol.clone()}>{"3"}</Button>
+                <Button primary={true} onclick={set_operator.clone()}>{"+"}</Button>
+                <Button wide={true} onclick={add_symbol.clone()}>{"0"}</Button>
+                <Button onclick={add_decimal_symbol.clone()}>{"."}</Button>
+                <Button primary={true} onclick={execute_expression.clone()}>{"="}</Button>
             </div>
         </div>
     }

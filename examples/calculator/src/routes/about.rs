@@ -1,4 +1,5 @@
-use apex::prelude::*;
+use crate::components::Button;
+use apex::{prelude::*, web_sys};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AboutLoaderData {
@@ -30,7 +31,7 @@ pub fn about() {
             .map_or("No data".to_owned(), |data| data.age.to_string())
     });
 
-    let inc_age = action!(loader_age => |_event| {
+    let inc_age = action!(loader_age @ web_sys::MouseEvent => |_| {
         loader_age.update(|age| {
             (age.parse::<u8>().unwrap_or(0) + 1).to_string()
         });
@@ -38,7 +39,10 @@ pub fn about() {
 
     tmpl! {
         <div class="about">
-            <button onclick={inc_age}>Inc age</button>
+            <Button primary={true} onclick={inc_age.clone()}>
+                <span>{loader_age.get()}</span>
+            </Button>
+
             <h1>About {loader_name.get()}</h1>
             <p>Age: {loader_age.get()}</p>
         </div>

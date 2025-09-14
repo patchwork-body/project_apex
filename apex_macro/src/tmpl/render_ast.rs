@@ -18,6 +18,65 @@ impl IdentifierVisitor {
     }
 }
 
+fn collect_variables_from_ast(ast_nodes: &[TmplAst]) -> Vec<Ident> {
+    let mut visitor = IdentifierVisitor::new();
+
+    fn visit_ast_node(node: &TmplAst, visitor: &mut IdentifierVisitor) {
+        match node {
+            TmplAst::Expression(expr) => {
+                if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
+                    visitor.visit_expr(&expr_tokens);
+                }
+            }
+            TmplAst::Element {
+                children,
+                attributes,
+                ..
+            } => {
+                for child in children {
+                    visit_ast_node(child, visitor);
+                }
+
+                for attr in attributes.values() {
+                    if let Attribute::Expression(expr) = attr {
+                        if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
+                            visitor.visit_expr(&expr_tokens);
+                        }
+                    }
+                }
+            }
+            TmplAst::SlotInterpolation {
+                default_children, ..
+            } => {
+                if let Some(children) = default_children {
+                    for child in children {
+                        visit_ast_node(child, visitor);
+                    }
+                }
+            }
+            TmplAst::Slot { children, .. } => {
+                for child in children {
+                    visit_ast_node(child, visitor);
+                }
+            }
+            TmplAst::ConditionalDirective(if_blocks) => {
+                for if_block in if_blocks {
+                    for child in &if_block.children {
+                        visit_ast_node(child, visitor);
+                    }
+                }
+            }
+            TmplAst::Text(_) | TmplAst::Outlet => {}
+        }
+    }
+
+    for node in ast_nodes {
+        visit_ast_node(node, &mut visitor);
+    }
+
+    visitor.identifiers
+}
+
 impl<'ast> Visit<'ast> for IdentifierVisitor {
     fn visit_path(&mut self, path: &'ast syn::Path) {
         if let Some(ident) = path.get_ident() {
@@ -73,8 +132,6 @@ pub(crate) fn render_ast(
                                 apex::effect!({
                                     text_node.set_data(&(#expr_tokens).to_string());
                                 });
-                            } else {
-                                apex::web_sys::console::warn_1(&format!("Warning: text node {} not found during hydration", text_node_counter).into());
                             }
                         }
                     });
@@ -135,23 +192,13 @@ pub(crate) fn render_ast(
                             Attribute::Empty => continue,
                             Attribute::Literal(literal) => {
                                 quote! {
-                                    if #builder_chain.has_prop(#key.to_string()) {
-                                        println!("has prop {}", #key.to_string());
-                                        #builder_chain.#method_name(#literal.into())
-                                    } else {
-                                        println!("no prop {}", #key.to_string());
-                                        #builder_chain.set_prop(#key.to_string(), Box::new(#literal.to_string()))
-                                    }
+                                    #builder_chain.#method_name(#literal.into())
                                 }
                             }
                             Attribute::Expression(expr) => {
                                 if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
                                     quote! {
-                                        if #builder_chain.has_prop(#key.to_string()) {
-                                            #builder_chain.#method_name(#expr_tokens)
-                                        } else {
-                                            #builder_chain.set_prop(#key.to_string(), Box::new(#expr_tokens))
-                                        }
+                                        #builder_chain.#method_name(#expr_tokens)
                                     }
                                 } else {
                                     continue;
@@ -160,11 +207,7 @@ pub(crate) fn render_ast(
                             Attribute::EventListener(handler) => {
                                 if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
                                     quote! {
-                                        if #builder_chain.has_prop(#key.to_string()) {
-                                            #builder_chain.#method_name(#handler_tokens)
-                                        } else {
-                                            #builder_chain.set_prop(#key.to_string(), Box::new(#handler_tokens))
-                                        }
+                                        #builder_chain.#method_name(#handler_tokens)
                                     }
                                 } else {
                                     continue;
@@ -195,6 +238,22 @@ pub(crate) fn render_ast(
 
                     // Complete the builder chain with .build()
 
+                    let (children_instructions, children_expressions) = render_ast(children);
+
+                    if !children_instructions.is_empty() {
+                        let children_vars = collect_variables_from_ast(children);
+
+                        builder_chain = quote! {
+                            #builder_chain.render_children(Box::new({
+                                #(let #children_vars = #children_vars.clone();)*
+
+                                move |buffer| {
+                                    #(#children_instructions)*
+                                }
+                            }))
+                        };
+                    }
+
                     instructions.push(quote! {
                         #[cfg(not(target_arch = "wasm32"))]
                         {
@@ -205,6 +264,20 @@ pub(crate) fn render_ast(
                             buffer.push_str(&component_html);
                         }
                     });
+
+                    if !children_expressions.is_empty() {
+                        let children_vars = collect_variables_from_ast(children);
+
+                        builder_chain = quote! {
+                            #builder_chain.hydrate_children(Box::new({
+                                #(let #children_vars = #children_vars.clone();)*
+
+                                move |expressions_map, elements_map| {
+                                    #(#children_expressions)*
+                                }
+                            }))
+                        };
+                    }
 
                     expressions.push(quote! {
                         #[cfg(target_arch = "wasm32")]
@@ -264,8 +337,6 @@ pub(crate) fn render_ast(
 
                     expressions.push(quote! {
                         let element_counter = #element_counter;
-                        #[cfg(target_arch = "wasm32")]
-                        apex::web_sys::console::log_1(&format!("hydration: element_counter = {}", element_counter).into());
                     });
 
                     let attr_setters_expressions = sorted_attributes
@@ -278,17 +349,17 @@ pub(crate) fn render_ast(
 
                                     let vars = visitor.identifiers;
 
-                                    Some(quote! {
-                                        {
-                                            #(let #vars = #vars.clone();)*
-                                            if let Some(element) = elements_map.get(&element_counter.to_string()).cloned() {
-                                                apex::effect!({
-                                                    element.set_attribute(#k, &(#expr_tokens).to_string());
-                                                });
+                                        Some(quote! {
+                                            {
+                                                #(let #vars = #vars.clone();)*
+                                                if let Some(element) = elements_map.get(&element_counter.to_string()).cloned() {
+                                                    apex::effect!({
+                                                        element.set_attribute(#k, &(#expr_tokens).to_string());
+                                                    });
                                             } else {
                                                 apex::web_sys::console::warn_1(&format!("Warning: element {} not found during hydration", element_counter.to_string()).into());
                                             }
-                                        }
+                                    }
                                     })
                                 } else {
                                     None
@@ -353,27 +424,33 @@ pub(crate) fn render_ast(
                                     return None; // Skip invalid event names
                                 };
 
+                                let event_type: syn::Type = match event_name {
+                                    "click" | "mousedown" | "mouseup" => {
+                                        syn::parse_str("apex::web_sys::MouseEvent").unwrap()
+                                    },
+                                    _ => {
+                                        syn::parse_str("apex::web_sys::Event").unwrap()
+                                    }
+                                };
+
                                 if let Ok(handler_tokens) = syn::parse_str::<syn::Expr>(handler) {
                                     Some(quote! {
                                         {
                                             use apex::wasm_bindgen::prelude::*;
                                             use apex::web_sys::*;
 
-                                            apex::web_sys::console::log_1(&format!("assigning event listener for event name: {}", #event_name).into());
-
                                             let handler_fn = (#handler_tokens).clone();
-                                            let closure = Closure::wrap(Box::new(move |event: apex::web_sys::Event| {
+                                            let closure = Closure::wrap(Box::new(move |event: #event_type| {
                                                 handler_fn(event);
-                                            }) as Box<dyn FnMut(apex::web_sys::Event)>);
+                                            }) as Box<dyn FnMut(#event_type)>);
 
                                             if let Some(element) = elements_map.get(&element_counter.to_string()).cloned() {
                                                 let _ = element.add_event_listener_with_callback(
                                                     #event_name,
                                                     closure.as_ref().unchecked_ref()
                                                 );
+
                                                 closure.forget(); // Prevent cleanup
-                                            } else {
-                                                apex::web_sys::console::warn_1(&format!("Warning: element {} not found during event listener attachment", element_counter.to_string()).into());
                                             }
                                         }
                                     })
@@ -416,6 +493,47 @@ pub(crate) fn render_ast(
                             buffer.push_str(">");
                             #(#children_instructions)*
                             buffer.push_str(&(#close_tag));
+                        });
+                    }
+                }
+            }
+            TmplAst::SlotInterpolation {
+                slot_name,
+                default_children,
+            } => {
+                if slot_name.is_none() {
+                    if let Some(default_children) = default_children {
+                        let (default_instructions, default_expressions) =
+                            render_ast(default_children);
+
+                        instructions.push(quote! {
+                            if let Some(render_children) = render_children.clone() {
+                                render_children(&mut buffer);
+                            } else {
+                                // Render default children
+                                #(#default_instructions)*
+                            }
+                        });
+
+                        expressions.push(quote! {
+                            if let Some(hydrate_children) = hydrate_children.clone() {
+                                hydrate_children(expressions_map, elements_map);
+                            } else {
+                                // Hydrate default children
+                                #(#default_expressions)*
+                            }
+                        });
+                    } else {
+                        instructions.push(quote! {
+                            if let Some(render_children) = render_children.clone() {
+                                render_children(&mut buffer);
+                            }
+                        });
+
+                        expressions.push(quote! {
+                            if let Some(hydrate_children) = hydrate_children.clone() {
+                                hydrate_children(expressions_map, elements_map);
+                            }
                         });
                     }
                 }

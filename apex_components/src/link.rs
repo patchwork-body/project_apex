@@ -6,7 +6,7 @@ use apex::web_sys;
 
 #[component]
 pub fn link(#[prop] href: String, #[prop] text: String) {
-    let handle_click = action!(href => |event| {
+    let handle_click = action!(href @ web_sys::MouseEvent => |event| {
             event.prevent_default();
             let detail = wasm_bindgen::JsValue::from_str(&href);
             let event_init = web_sys::CustomEventInit::new();

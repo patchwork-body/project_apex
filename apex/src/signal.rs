@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::fmt;
 
 thread_local! {
     static EFFECTS: RefCell<std::collections::HashMap<usize, Box<dyn Fn()>>> = RefCell::new(std::collections::HashMap::new());
@@ -89,6 +90,12 @@ impl From<&str> for Signal<String> {
 impl From<String> for Signal<String> {
     fn from(s: String) -> Self {
         Signal::new(s)
+    }
+}
+
+impl<T: Clone + fmt::Display + 'static> fmt::Display for Signal<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.get().fmt(f)
     }
 }
 

@@ -33,7 +33,7 @@ pub(crate) fn parse_slot_name(chars: &mut std::iter::Peekable<Chars<'_>>) -> Str
             break;
         }
 
-        if !is_valid_slot_name_char(ch) {
+        if ch != ' ' && !is_valid_slot_name_char(ch) {
             panic!(
                 "Invalid slot name character: {ch}, slot name must contain only alphanumeric or '_'"
             );

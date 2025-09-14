@@ -43,170 +43,52 @@
 /// ```
 #[macro_export]
 macro_rules! action {
-    // Simplest case - single signal, auto-capture with same name, event as 'event'
-    ($signal:ident => $body:block) => {
-        {
-            let $signal = $signal.clone();
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
-        }
-    };
+    // helper: bind signals with optional alias
+    (@bind $sig:ident as $alias:ident) => { let $alias = $sig.clone(); };
+    (@bind $sig:ident) => { let $sig = $sig.clone(); };
 
-    // Multiple signals, auto-capture with same names, event as 'event'
-    ($($signal:ident),+ => $body:block) => {
-        {
-            $(let $signal = $signal.clone();)+
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
-        }
-    };
+    // Explicit return type, ignore event with wildcard
+    ( $( $sig:ident $(as $alias:ident)? ),* @ $ret_ty:ty $(; $( $cap_ident:ident = $cap_expr:expr ),+ )? => |_| $body:block ) => {{
+        $( $crate::action!(@bind $sig $(as $alias)?); )*
+        $( $( let $cap_ident = $cap_expr; )+ )?
+        ::std::rc::Rc::new(move |_ignored: $ret_ty| $body)
+    }};
 
-    // Single signal with custom variable name, event as 'event'
-    ($signal:ident as $captured:ident => $body:block) => {
-        {
-            let $captured = $signal.clone();
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
-        }
-    };
+    // Default Event return type, ignore event with wildcard
+    ( $( $sig:ident $(as $alias:ident)? ),* $(; $( $cap_ident:ident = $cap_expr:expr ),+ )? => |_| $body:block ) => {{
+        $( $crate::action!(@bind $sig $(as $alias)?); )*
+        $( $( let $cap_ident = $cap_expr; )+ )?
+        ::std::rc::Rc::new(move |_ignored: $crate::web_sys::Event| $body)
+    }};
 
-    // Multiple signals with custom variable names, event as 'event'
-    ($($signal:ident as $captured:ident),+ => $body:block) => {
-        {
-            $(let $captured = $signal.clone();)+
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
-        }
-    };
+    // General form with explicit event param; optional:
+    // - multiple signals with optional aliases
+    // - return type with `@ EventTy` (closure takes EventTy)
+    // - extra captures `; name = expr, ...`
+    // - event param type annotation (casts when return type is Event)
+    ( $( $sig:ident $(as $alias:ident)? ),* @ $ret_ty:ty $(; $( $cap_ident:ident = $cap_expr:expr ),+ )? => | $event_param:ident $( : $event_ty:ty )? | $body:block ) => {{
+        $( $crate::action!(@bind $sig $(as $alias)?); )*
+        $( $( let $cap_ident = $cap_expr; )+ )?
+        ::std::rc::Rc::new(move |$event_param: $ret_ty| {
+            $( let $event_param: $event_ty = $crate::wasm_bindgen::JsCast::unchecked_into($event_param); )?
+            $body
+        })
+    }};
 
-    // Single signal with custom event parameter name
-    ($signal:ident => |$event_param:ident| $body:block) => {
-        {
-            let $signal = $signal.clone();
-            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
-        }
-    };
+    // Same as above, default return type apex::web_sys::Event
+    ( $( $sig:ident $(as $alias:ident)? ),* $(; $( $cap_ident:ident = $cap_expr:expr ),+ )? => | $event_param:ident $( : $event_ty:ty )? | $body:block ) => {{
+        $( $crate::action!(@bind $sig $(as $alias)?); )*
+        $( $( let $cap_ident = $cap_expr; )+ )?
+        ::std::rc::Rc::new(move |$event_param: $crate::web_sys::Event| {
+            $( let $event_param: $event_ty = $crate::wasm_bindgen::JsCast::unchecked_into($event_param); )?
+            $body
+        })
+    }};
 
-    // Multiple signals with custom event parameter name
-    ($($signal:ident),+ => |$event_param:ident| $body:block) => {
-        {
-            $(let $signal = $signal.clone();)+
-            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
-        }
-    };
-
-    // Typed event parameter variants
-    // Single signal, typed event parameter
-    ($signal:ident => |$event_param:ident: $event_ty:ty| $body:block) => {
-        {
-            let $signal = $signal.clone();
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| {
-                let $event_param: $event_ty = apex::wasm_bindgen::JsCast::unchecked_into(event);
-                $body
-            })
-        }
-    };
-
-    // Multiple signals, typed event parameter
-    ($($signal:ident),+ => |$event_param:ident: $event_ty:ty| $body:block) => {
-        {
-            $(let $signal = $signal.clone();)+
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| {
-                let $event_param: $event_ty = apex::wasm_bindgen::JsCast::unchecked_into(event);
-                $body
-            })
-        }
-    };
-
-    // Single signal with custom captured name, typed event parameter
-    ($signal:ident as $captured:ident => |$event_param:ident: $event_ty:ty| $body:block) => {
-        {
-            let $captured = $signal.clone();
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| {
-                let $event_param: $event_ty = apex::wasm_bindgen::JsCast::unchecked_into(event);
-                $body
-            })
-        }
-    };
-
-    // Multiple signals with custom captured names, typed event parameter
-    ($($signal:ident as $captured:ident),+ => |$event_param:ident: $event_ty:ty| $body:block) => {
-        {
-            $(let $captured = $signal.clone();)+
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| {
-                let $event_param: $event_ty = apex::wasm_bindgen::JsCast::unchecked_into(event);
-                $body
-            })
-        }
-    };
-
-    // Single signal with custom names for both signal and event
-    ($signal:ident as $captured:ident => |$event_param:ident| $body:block) => {
-        {
-            let $captured = $signal.clone();
-            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
-        }
-    };
-
-    // Multiple signals with custom names and custom event parameter
-    ($($signal:ident as $captured:ident),+ => |$event_param:ident| $body:block) => {
-        {
-            $(let $captured = $signal.clone();)+
-            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
-        }
-    };
-
-    // Signals plus extra captured values provided as name = expr pairs
-    // Example: action!(expr, prev; operator = Operator::Add => |_e| { operator.clone(); })
-    ($($signal:ident),+ ; $($cap_ident:ident = $cap_expr:expr),+ => $body:block) => {
-        {
-            $(let $signal = $signal.clone();)+
-            $(let $cap_ident = $cap_expr;)+
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
-        }
-    };
-
-    // Same as above, with custom event parameter name
-    ($($signal:ident),+ ; $($cap_ident:ident = $cap_expr:expr),+ => |$event_param:ident| $body:block) => {
-        {
-            $(let $signal = $signal.clone();)+
-            $(let $cap_ident = $cap_expr;)+
-            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
-        }
-    };
-
-    // Signals plus extra captured values, with typed event parameter
-    ($($signal:ident),+ ; $($cap_ident:ident = $cap_expr:expr),+ => |$event_param:ident: $event_ty:ty| $body:block) => {
-        {
-            $(let $signal = $signal.clone();)+
-            $(let $cap_ident = $cap_expr;)+
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| {
-                let $event_param: $event_ty = apex::wasm_bindgen::JsCast::unchecked_into(event);
-                $body
-            })
-        }
-    };
-
-    // Only extra captured values, no signals
-    (; $($cap_ident:ident = $cap_expr:expr),+ => $body:block) => {
-        {
-            $(let $cap_ident = $cap_expr;)+
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| $body)
-        }
-    };
-
-    // Only extra captured values with custom event param
-    (; $($cap_ident:ident = $cap_expr:expr),+ => |$event_param:ident| $body:block) => {
-        {
-            $(let $cap_ident = $cap_expr;)+
-            ::std::rc::Rc::new(move |$event_param: apex::web_sys::Event| $body)
-        }
-    };
-
-    // Only extra captured values with typed event param
-    (; $($cap_ident:ident = $cap_expr:expr),+ => |$event_param:ident: $event_ty:ty| $body:block) => {
-        {
-            $(let $cap_ident = $cap_expr;)+
-            ::std::rc::Rc::new(move |event: apex::web_sys::Event| {
-                let $event_param: $event_ty = apex::wasm_bindgen::JsCast::unchecked_into(event);
-                $body
-            })
-        }
-    };
+    // No explicit event param: default param name `event`, default return type Event
+    ( $( $sig:ident $(as $alias:ident)? ),* $(; $( $cap_ident:ident = $cap_expr:expr ),+ )? => $body:block ) => {{
+        $( $crate::action!(@bind $sig $(as $alias)?); )*
+        $( $( let $cap_ident = $cap_expr; )+ )?
+        ::std::rc::Rc::new(move |event: $crate::web_sys::Event| $body)
+    }};
 }

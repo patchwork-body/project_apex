@@ -43,11 +43,12 @@ pub(crate) enum TmplAst {
         children: Vec<TmplAst>,
     },
     Slot {
-        name: String,
+        name: Option<String>,
         children: Vec<TmplAst>,
     },
     SlotInterpolation {
-        slot_name: String,
+        slot_name: Option<String>,
+        default_children: Option<Vec<TmplAst>>,
     },
     ConditionalDirective(Vec<IfBlock>),
     Outlet,

@@ -13,7 +13,7 @@ pub(crate) fn parse_props(input: &ItemFn) -> Vec<ComponentProp> {
 
     for arg in &input.sig.inputs {
         if let FnArg::Typed(pat_type) = arg {
-            // Check if parameter has #[prop] or #[server_context] attribute
+            // Check if parameter has #[prop] attribute
             let mut has_prop_attr = false;
             let mut default_value = None;
 

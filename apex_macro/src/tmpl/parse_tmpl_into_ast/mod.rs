@@ -7,6 +7,7 @@ mod parse_conditional_directive;
 mod parse_directive_name;
 mod parse_directive_params;
 mod parse_element_opening_tag;
+mod parse_slot_interpolation;
 mod parse_slot_name;
 mod process_chars_until;
 
@@ -197,7 +198,7 @@ mod tests {
                 self_closing: false,
                 children: vec![
                     TmplAst::Slot {
-                        name: "header".to_owned(),
+                        name: Some("header".to_owned()),
                         children: vec![TmplAst::Element {
                             tag: "h2".to_owned(),
                             attributes: HashMap::new(),
@@ -207,7 +208,7 @@ mod tests {
                         },],
                     },
                     TmplAst::Slot {
-                        name: "content".to_owned(),
+                        name: Some("content".to_owned()),
                         children: vec![
                             TmplAst::Element {
                                 tag: "p".to_owned(),
@@ -232,7 +233,7 @@ mod tests {
                         ],
                     },
                     TmplAst::Slot {
-                        name: "footer".to_owned(),
+                        name: Some("footer".to_owned()),
                         children: vec![TmplAst::Element {
                             tag: "button".to_owned(),
                             attributes: HashMap::from([(
@@ -512,6 +513,20 @@ mod tests {
                         ],
                     },
                 ],
+            }]
+        );
+    }
+
+    #[test]
+    fn unnamed_slot_interpolation() {
+        let input = "<#slot>Hello, world!</#slot>";
+        let ast = parse_tmpl_into_ast(input);
+
+        assert_eq!(
+            ast,
+            vec![TmplAst::SlotInterpolation {
+                slot_name: None,
+                default_children: Some(vec![TmplAst::Text("Hello, world!".to_owned())]),
             }]
         );
     }

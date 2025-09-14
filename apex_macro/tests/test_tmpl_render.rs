@@ -91,3 +91,70 @@ fn test_same_component_multiple_times() {
         2
     );
 }
+
+#[test]
+fn test_component_with_slot() {
+    #[component]
+    fn my_component() {
+        tmpl! { <div><#slot /></div> }
+    }
+
+    let data = &std::collections::HashMap::new();
+
+    let result = tmpl! { <MyComponent /> };
+
+    // By default, slots renders as empty if no default children are provided
+    assert_eq!(result, "<div></div>");
+}
+
+#[test]
+fn test_component_with_named_slot() {
+    #[component]
+    fn my_component() {
+        tmpl! { <div><#slot>Hello, world!</#slot></div> }
+    }
+
+    let data = &std::collections::HashMap::new();
+
+    let result = tmpl! { <MyComponent /> };
+
+    assert_eq!(result, "<div>Hello, world!</div>");
+}
+
+#[test]
+fn test_component_with_slot_passing_children() {
+    #[component]
+    fn my_component() {
+        tmpl! { <div><#slot>Hello, world!</#slot></div> }
+    }
+
+    let data = &std::collections::HashMap::new();
+
+    let result = tmpl! { <MyComponent>Hello, world from parent!</MyComponent> };
+
+    assert_eq!(result, "<div>Hello, world from parent!</div>");
+}
+
+#[test]
+fn test_signals_as_slot_children() {
+    #[component]
+    fn child_component() {
+        tmpl! { <div><#slot /></div> }
+    }
+
+    #[component]
+    fn parent_component() {
+        let name = Signal::new("John".to_owned());
+
+        tmpl! { <ChildComponent>Hello, {name.get()}!</ChildComponent> }
+    }
+
+    let data = &std::collections::HashMap::new();
+
+    let result = tmpl! { <ParentComponent /> };
+
+    // Check that the result contains the expected structure with expression comments
+    assert!(result.contains("<div>Hello, <!-- @expr-text-begin:"));
+    assert!(result.contains("-->John<!-- @expr-text-end:"));
+    assert!(result.contains("-->!</div>"));
+}
