@@ -158,3 +158,32 @@ fn test_signals_as_slot_children() {
     assert!(result.contains("-->John<!-- @expr-text-end:"));
     assert!(result.contains("-->!</div>"));
 }
+
+#[test]
+fn test_component_with_event_handler_on_slot() {
+    #[component]
+    fn child_component() {
+        tmpl! { <div><#slot /></div> }
+    }
+
+    #[component]
+    fn parent_component() {
+        let onclick = action!(@ web_sys::MouseEvent => |_| {
+            println!("Button clicked");
+        });
+
+        tmpl! { <ChildComponent>
+            <button onclick={onclick}>Click me</button>
+        </ChildComponent> }
+    }
+
+    let data = &std::collections::HashMap::new();
+
+    let result = tmpl! { <ParentComponent /> };
+
+    // The rendered output includes element tracking comments and may have extra spaces
+    // We should check for the essential content rather than exact formatting
+    assert!(result.contains("<button"));
+    assert!(result.contains("Click me"));
+    assert!(result.contains("</button>"));
+}

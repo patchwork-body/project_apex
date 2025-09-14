@@ -265,19 +265,7 @@ pub(crate) fn render_ast(
                         }
                     });
 
-                    if !children_expressions.is_empty() {
-                        let children_vars = collect_variables_from_ast(children);
-
-                        builder_chain = quote! {
-                            #builder_chain.hydrate_children(Box::new({
-                                #(let #children_vars = #children_vars.clone();)*
-
-                                move |expressions_map, elements_map| {
-                                    #(#children_expressions)*
-                                }
-                            }))
-                        };
-                    }
+                    expressions.extend(children_expressions);
 
                     expressions.push(quote! {
                         #[cfg(target_arch = "wasm32")]

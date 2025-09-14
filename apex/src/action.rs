@@ -32,14 +32,6 @@
 ///     e.prevent_default();
 ///     count.update(|c| c + 1);
 /// });
-///
-/// // Use in component props:
-/// #[component]
-/// pub fn my_button(
-///     #[prop(default = noop_action())] onclick: Action,
-/// ) -> String {
-///     "".to_string()
-/// }
 /// ```
 #[macro_export]
 macro_rules! action {

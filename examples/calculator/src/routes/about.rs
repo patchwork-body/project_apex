@@ -39,8 +39,8 @@ pub fn about() {
 
     tmpl! {
         <div class="about">
-            <Button primary={true} onclick={inc_age.clone()}>
-                <span>{loader_age.get()}</span>
+            <Button primary={true}>
+                <span onclick={inc_age.clone()}>{loader_age.get()}</span>
             </Button>
 
             <h1>About {loader_name.get()}</h1>
