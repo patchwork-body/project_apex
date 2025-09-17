@@ -494,9 +494,9 @@ impl ApexClientRouter {
             }
         }
 
-        for node in nodes_to_remove {
-            node.remove();
-        }
+        // for node in nodes_to_remove {
+        //     node.remove();
+        // }
 
         let location = window.location();
         let pathname = location.pathname().expect("pathname not found");

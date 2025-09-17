@@ -37,7 +37,8 @@ pub(crate) fn generate_loader_data_macro(input: TokenStream) -> TokenStream2 {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 // On the server side, call the helper function with data parameter
-                #helper_name(data)
+                // Try to borrow if it's an Rc<RefCell<>>, otherwise use directly
+                #helper_name(&*data.borrow())
             }
         }
     }

@@ -94,10 +94,10 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             let route_name = stringify!(#fn_name);
 
             if let Ok(serialized_data) = serde_json::to_value(&route_data) {
-                data.insert(route_name.to_owned(), serialized_data);
+                data.borrow_mut().insert(route_name.to_owned(), serialized_data);
             }
 
-            let html = component.render(&data);
+            let html = component.render(data.clone());
 
             html
         }
@@ -109,7 +109,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         quote! {
             { #fn_body };
             let component = #component_name::builder().build();
-            component.render(&data)
+            component.render(data.clone())
         }
     } else {
         quote! {
@@ -117,7 +117,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             let route_name = stringify!(#fn_name);
 
             if let Ok(serialized_data) = serde_json::to_value(&route_data) {
-                data.insert(route_name.to_owned(), serialized_data);
+                data.borrow_mut().insert(route_name.to_owned(), serialized_data);
             }
 
             route_data
@@ -154,7 +154,7 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
             fn handler(&self) -> apex::apex_router::ApexServerHandler {
                 Box::new(|#params_name: std::collections::HashMap<String, String>| {
                     Box::pin(async move {
-                        let mut data: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+                        let mut data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>> = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::new()));
 
                         let html = {
                             #handler_method_logic

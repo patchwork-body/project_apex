@@ -30,7 +30,10 @@ fn test_component() {
         tmpl! { <div>Hello, world!</div> }
     }
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     assert_eq!(tmpl! { <MyComponent /> }, "<div>Hello, world!</div>");
 }
@@ -42,7 +45,10 @@ fn test_component_with_static_prop() {
         tmpl! { <div>Hello, {name}!</div> }
     }
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     let result = tmpl! { <MyComponent name="John" /> };
 
@@ -61,7 +67,10 @@ fn test_component_with_dynamic_prop() {
 
     let signal = Signal::new("John".to_owned());
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     let result = tmpl! { <MyComponent name={signal} /> };
 
@@ -78,7 +87,10 @@ fn test_same_component_multiple_times() {
         tmpl! { <div>Hello, {name.get()}!</div> }
     }
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     let result = tmpl! { <MyComponent name={Signal::new("John".to_owned())} /> <MyComponent name={Signal::new("Jane".to_owned())} /> };
 
@@ -93,13 +105,16 @@ fn test_same_component_multiple_times() {
 }
 
 #[test]
-fn test_component_with_slot() {
+fn test_component_with_unnamed_slot() {
     #[component]
     fn my_component() {
         tmpl! { <div><#slot /></div> }
     }
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     let result = tmpl! { <MyComponent /> };
 
@@ -108,13 +123,16 @@ fn test_component_with_slot() {
 }
 
 #[test]
-fn test_component_with_named_slot() {
+fn test_component_with_unnamed_slot_with_default_children() {
     #[component]
     fn my_component() {
         tmpl! { <div><#slot>Hello, world!</#slot></div> }
     }
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     let result = tmpl! { <MyComponent /> };
 
@@ -122,13 +140,16 @@ fn test_component_with_named_slot() {
 }
 
 #[test]
-fn test_component_with_slot_passing_children() {
+fn test_component_with_unnamed_slot_passing_children() {
     #[component]
     fn my_component() {
         tmpl! { <div><#slot>Hello, world!</#slot></div> }
     }
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     let result = tmpl! { <MyComponent>Hello, world from parent!</MyComponent> };
 
@@ -149,7 +170,10 @@ fn test_signals_as_slot_children() {
         tmpl! { <ChildComponent>Hello, {name.get()}!</ChildComponent> }
     }
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     let result = tmpl! { <ParentComponent /> };
 
@@ -177,7 +201,10 @@ fn test_component_with_event_handler_on_slot() {
         </ChildComponent> }
     }
 
-    let data = &std::collections::HashMap::new();
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
 
     let result = tmpl! { <ParentComponent /> };
 
@@ -186,4 +213,117 @@ fn test_component_with_event_handler_on_slot() {
     assert!(result.contains("<button"));
     assert!(result.contains("Click me"));
     assert!(result.contains("</button>"));
+}
+
+#[test]
+fn test_component_with_named_slot() {
+    #[component]
+    fn child_component() {
+        tmpl! {
+            <div>
+                <#slot header>
+                    <h1>Empty title!</h1>
+                </#slot>
+                <#slot content>
+                    <p>Empty content!</p>
+                </#slot>
+            </div>
+        }
+    }
+
+    #[component]
+    fn parent_component() {
+        tmpl! {
+            <ChildComponent>
+                <#header>
+                    <h1>Hello, title!</h1>
+                </#header>
+                <#content>
+                    <p>Hello, world!</p>
+                </#content>
+            </ChildComponent>
+        }
+    }
+
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
+
+    let result = tmpl! { <ParentComponent /> };
+
+    assert_eq!(
+        result,
+        "<div><h1>Hello, title!</h1><p>Hello, world!</p></div>"
+    );
+}
+
+#[test]
+fn test_component_with_named_and_unnamed_slot() {
+    #[component]
+    fn child_component() {
+        tmpl! {
+            <div>
+                <#slot header>
+                    Empty title!
+                </#slot>
+                <#slot>
+                    Empty unnamed slot!
+                </#slot>
+                <#slot content>
+                    Empty content!
+                </#slot>
+            </div>
+        }
+    }
+
+    #[component]
+    fn parent_component() {
+        tmpl! {
+            <ChildComponent>
+                <#header><h1>Hello, title!</h1></#header>
+                <p>Hello, unnamed slot!</p>
+                <#content><p>Hello, world!</p></#content>
+            </ChildComponent>
+        }
+    }
+
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
+
+    let result = tmpl! { <ParentComponent /> };
+
+    assert_eq!(
+        result,
+        "<div><h1>Hello, title!</h1><p>Hello, unnamed slot!</p><p>Hello, world!</p></div>"
+    );
+}
+
+#[test]
+fn test_component_with_slot_passing_another_component() {
+    #[component]
+    fn child_component() {
+        tmpl! { <div><#slot>{1 + 1}</#slot></div> }
+    }
+
+    #[component]
+    fn button() {
+        tmpl! { <button>Click me</button> }
+    }
+
+    #[component]
+    fn parent_component() {
+        tmpl! { <ChildComponent><Button /></ChildComponent> }
+    }
+
+    let data = std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::<
+        String,
+        serde_json::Value,
+    >::new()));
+
+    let result = tmpl! { <ParentComponent /> };
+
+    assert_eq!(result, "<div><button>Click me</button></div>");
 }

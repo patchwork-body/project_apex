@@ -18,7 +18,7 @@ impl IdentifierVisitor {
     }
 }
 
-fn collect_variables_from_ast(ast_nodes: &[TmplAst]) -> Vec<Ident> {
+pub(crate) fn collect_variables_from_ast(ast_nodes: &[TmplAst]) -> Vec<Ident> {
     let mut visitor = IdentifierVisitor::new();
 
     fn visit_ast_node(node: &TmplAst, visitor: &mut IdentifierVisitor) {
@@ -38,10 +38,13 @@ fn collect_variables_from_ast(ast_nodes: &[TmplAst]) -> Vec<Ident> {
                 }
 
                 for attr in attributes.values() {
-                    if let Attribute::Expression(expr) = attr {
-                        if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
-                            visitor.visit_expr(&expr_tokens);
+                    match attr {
+                        Attribute::Expression(expr) | Attribute::EventListener(expr) => {
+                            if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(expr) {
+                                visitor.visit_expr(&expr_tokens);
+                            }
                         }
+                        _ => {}
                     }
                 }
             }
@@ -82,6 +85,21 @@ impl<'ast> Visit<'ast> for IdentifierVisitor {
         if let Some(ident) = path.get_ident() {
             let ident_str = ident.to_string();
 
+            // Skip well-known macros and builtins that shouldn't be captured/cloned
+            // This prevents generating `let format = format.clone();` which breaks `format!` macro calls.
+            const SKIP: &[&str] = &[
+                "format",
+                "vec",
+                "println",
+                "eprintln",
+                "write",
+                "writeln",
+                "format_args",
+            ];
+            if SKIP.contains(&ident_str.as_str()) {
+                return;
+            }
+
             if self.seen.insert(ident_str) {
                 self.identifiers.push(ident.clone());
             }
@@ -102,13 +120,57 @@ impl<'ast> Visit<'ast> for IdentifierVisitor {
     }
 }
 
+fn trim_whitespace_around_slots(content: &[TmplAst]) -> Vec<TmplAst> {
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    while i < content.len() {
+        match &content[i] {
+            TmplAst::SlotInterpolation { .. } => {
+                // Trim whitespace before the slot
+                if let Some(TmplAst::Text(text)) = result.last_mut() {
+                    *text = text.trim_end().to_owned();
+                    if text.is_empty() {
+                        result.pop();
+                    }
+                }
+
+                // Add the slot
+                result.push(content[i].clone());
+
+                // Skip whitespace after the slot
+                if i + 1 < content.len() {
+                    if let TmplAst::Text(text) = &content[i + 1] {
+                        if text.trim().is_empty() {
+                            i += 1; // Skip the whitespace text node
+                        } else {
+                            // Add the text node with leading whitespace trimmed
+                            i += 1;
+                            result.push(TmplAst::Text(text.trim_start().to_owned()));
+                        }
+                    }
+                }
+            }
+            _ => {
+                result.push(content[i].clone());
+            }
+        }
+        i += 1;
+    }
+
+    result
+}
+
 pub(crate) fn render_ast(
     content: &[TmplAst],
 ) -> (Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>) {
     let mut instructions = Vec::new();
     let mut expressions = Vec::new();
 
-    for ast in content {
+    // Trim whitespace around slot interpolations
+    let content = trim_whitespace_around_slots(content);
+
+    for ast in &content {
         match ast {
             TmplAst::Text(text) => {
                 instructions.push(quote! {
@@ -161,27 +223,6 @@ pub(crate) fn render_ast(
                 if *is_component {
                     let component_name = syn::Ident::new(tag, proc_macro2::Span::call_site());
 
-                    // Collect slot children into a map: slot_name -> Html
-                    // let mut slot_map = std::collections::HashMap::new();
-                    // let mut non_slot_children = Vec::new();
-
-                    // for child in children {
-                    //     if let TmplAst::Slot { name, children } = child {
-                    //         // Render the slot children into Html
-                    //         let slot_child_fns = render_ast(children);
-
-                    //         let slot_html = quote! {
-                    //             apex::Html::new(|element| {
-                    //                 #(#slot_child_fns)*
-                    //             })
-                    //         };
-
-                    //         slot_map.insert(name.clone(), slot_html);
-                    //     } else {
-                    //         non_slot_children.push(child.clone());
-                    //     }
-                    // }
-
                     // Generate builder method calls for each attribute
                     let mut builder_chain = quote! { #component_name::builder() };
 
@@ -216,56 +257,102 @@ pub(crate) fn render_ast(
                         };
                     }
 
-                    // Add builder calls for slots
-                    // for (slot_name, slot_html) in &slot_map {
-                    //     let method_name =
-                    //         syn::Ident::new(slot_name, proc_macro2::Span::call_site());
-                    //     builder_chain = quote! { #builder_chain.#method_name(#slot_html) };
-                    // }
+                    let mut render_slots_map = quote! { std::collections::HashMap::new() };
+                    let mut regular_children = Vec::new();
+                    let mut all_slot_expressions = Vec::new();
 
-                    // Generate children Html if non-slot children exist (for default slot)
-                    // if !non_slot_children.is_empty() {
-                    //     let child_fns = render_ast(&non_slot_children);
+                    for child in children {
+                        if let TmplAst::Slot {
+                            name: Some(slot_name),
+                            children: slot_children,
+                        } = child
+                        {
+                            let (slot_instructions, slot_expressions) = render_ast(slot_children);
+                            let slot_vars = collect_variables_from_ast(slot_children);
 
-                    //     let children_html = quote! {
-                    //         apex::Html::new(|element| {
-                    //             #(#child_fns)*
-                    //         })
-                    //     };
+                            if slot_vars.is_empty() {
+                                // No variables to capture, create simple closures
+                                render_slots_map = quote! {
+                                    {
+                                        let mut map = #render_slots_map;
 
-                    //     builder_chain = quote! { #builder_chain.children(#children_html) };
-                    // }
+                                        map.insert(#slot_name.to_string(), std::rc::Rc::new(Box::new(move |buffer: &mut String, data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>| {
+                                            #(#slot_instructions)*
+                                        }) as Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>));
 
-                    // Complete the builder chain with .build()
+                                        map
+                                    }
+                                };
+                            } else {
+                                // Variables need to be captured - each slot gets its own closure with cloned variables
+                                render_slots_map = quote! {
+                                    {
+                                        let mut map = #render_slots_map;
 
-                    let (children_instructions, children_expressions) = render_ast(children);
+                                        map.insert(#slot_name.to_string(), std::rc::Rc::new(Box::new({
+                                            // Clone variables for this specific slot closure
+                                            #(let #slot_vars = #slot_vars.clone();)*
 
-                    if !children_instructions.is_empty() {
-                        let children_vars = collect_variables_from_ast(children);
+                                            move |buffer: &mut String, data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>| {
+                                                #(#slot_instructions)*
+                                            }
+                                        }) as Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>));
 
-                        builder_chain = quote! {
-                            #builder_chain.render_children(Box::new({
-                                #(let #children_vars = #children_vars.clone();)*
+                                        map
+                                    }
+                                };
+                            }
 
-                                move |buffer| {
-                                    #(#children_instructions)*
-                                }
-                            }))
-                        };
+                            all_slot_expressions.extend(slot_expressions);
+                        } else {
+                            regular_children.push(child.clone());
+                        }
                     }
+
+                    expressions.extend(all_slot_expressions);
+
+                    // Handle regular children (unnamed slot)
+                    let (children_instructions, children_expressions) =
+                        render_ast(&regular_children);
+
+                    if !regular_children.is_empty() {
+                        let children_vars = collect_variables_from_ast(&regular_children);
+
+                        if children_vars.is_empty() {
+                            // No variables to capture, create a simple closure
+                            builder_chain = quote! {
+                                #builder_chain.render_children(Box::new(move |buffer: &mut String, data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>| {
+                                    #(#children_instructions)*
+                                }))
+                            };
+                        } else {
+                            // Variables need to be captured
+                            builder_chain = quote! {
+                                #builder_chain.render_children(Box::new({
+                                    #(let #children_vars = #children_vars.clone();)*
+
+                                    move |buffer: &mut String, data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>| {
+                                        #(#children_instructions)*
+                                    }
+                                }))
+                            };
+                        }
+                    }
+
+                    builder_chain = quote! {
+                        #builder_chain.named_slots(#render_slots_map)
+                    };
 
                     instructions.push(quote! {
                         #[cfg(not(target_arch = "wasm32"))]
                         {
                             let component_instance = #builder_chain.build();
                             // Data is passed from the route, so it might not exist if this component is rendered not in the route
-                            let component_html = component_instance.render(data);
+                            let component_html = component_instance.render(data.clone());
 
                             buffer.push_str(&component_html);
                         }
                     });
-
-                    expressions.extend(children_expressions);
 
                     expressions.push(quote! {
                         #[cfg(target_arch = "wasm32")]
@@ -276,6 +363,8 @@ pub(crate) fn render_ast(
                             hydrate(expressions_map, elements_map)
                         }
                     });
+
+                    expressions.extend(children_expressions);
                 } else {
                     let tag_name = tag.clone();
                     let element_counter = quote! { apex::apex_utils::next_element_counter() };
@@ -489,14 +578,20 @@ pub(crate) fn render_ast(
                 slot_name,
                 default_children,
             } => {
-                if slot_name.is_none() {
+                if let Some(slot_name) = slot_name {
+                    // Handle named slots
                     if let Some(default_children) = default_children {
                         let (default_instructions, default_expressions) =
                             render_ast(default_children);
 
                         instructions.push(quote! {
-                            if let Some(render_children) = render_children.clone() {
-                                render_children(&mut buffer);
+                            if let Some(named_slots) = &named_slots {
+                                if let Some(render_slot) = named_slots.get(#slot_name) {
+                                    render_slot(&mut buffer, data.clone());
+                                } else {
+                                    // Render default children
+                                    #(#default_instructions)*
+                                }
                             } else {
                                 // Render default children
                                 #(#default_instructions)*
@@ -504,26 +599,46 @@ pub(crate) fn render_ast(
                         });
 
                         expressions.push(quote! {
-                            if let Some(hydrate_children) = hydrate_children.clone() {
-                                hydrate_children(expressions_map, elements_map);
-                            } else {
-                                // Hydrate default children
+                            apex::web_sys::console::log_1(&"named_slots_keys:".into());
+                            apex::web_sys::console::log_1(&#slot_name.to_string().into());
+                            apex::web_sys::console::log_1(&format!("{:?}", named_slots_keys).into());
+                            apex::web_sys::console::log_1(&format!("{:?}", !named_slots_keys.contains(&#slot_name.to_owned())).into());
+
+                            if !named_slots_keys.contains(&#slot_name.to_owned()) {
                                 #(#default_expressions)*
                             }
                         });
                     } else {
                         instructions.push(quote! {
-                            if let Some(render_children) = render_children.clone() {
-                                render_children(&mut buffer);
-                            }
-                        });
-
-                        expressions.push(quote! {
-                            if let Some(hydrate_children) = hydrate_children.clone() {
-                                hydrate_children(expressions_map, elements_map);
+                            if let Some(named_slots) = &named_slots {
+                                if let Some(render_slot) = named_slots.get(#slot_name) {
+                                    render_slot(&mut buffer, data.clone());
+                                }
                             }
                         });
                     }
+                } else if let Some(default_children) = default_children {
+                    let (default_instructions, default_expressions) = render_ast(default_children);
+
+                    instructions.push(quote! {
+                        if let Some(render_children) = render_children.clone() {
+                            render_children(&mut buffer, data.clone());
+                        } else {
+                            #(#default_instructions)*
+                        }
+                    });
+
+                    expressions.push(quote! {
+                        if !has_render_children {
+                            #(#default_expressions)*
+                        }
+                    });
+                } else {
+                    instructions.push(quote! {
+                        if let Some(render_children) = render_children.clone() {
+                            render_children(&mut buffer, data.clone());
+                        }
+                    });
                 }
             }
             TmplAst::Outlet => {
@@ -531,14 +646,6 @@ pub(crate) fn render_ast(
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         buffer.push_str("<!-- @outlet-begin --><!-- @outlet-end -->");
-                    }
-                });
-
-                expressions.push(quote! {
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        // Client-side: outlet placeholder for future client-side routing
-                        // This will be handled by the client-side router
                     }
                 });
             }

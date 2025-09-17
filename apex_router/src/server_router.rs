@@ -15,9 +15,20 @@ use crate::get_matched_path;
 pub type ApexServerHandler = Box<
     dyn Fn(
             HashMap<String, String>,
-        )
-            -> Pin<Box<dyn Future<Output = (String, HashMap<String, serde_json::Value>)> + Send>>
-        + Send
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = (
+                            String,
+                            std::rc::Rc<
+                                std::cell::RefCell<
+                                    std::collections::HashMap<String, serde_json::Value>,
+                                >,
+                            >,
+                        ),
+                    > + Send,
+            >,
+        > + Send
         + Sync,
 >;
 
@@ -41,7 +52,14 @@ pub trait ApexServerRoute: Send + Sync {
     /// a future that resolves to an HTML string response. Defaults to an empty
     /// response if not overridden.
     fn handler(&self) -> ApexServerHandler {
-        Box::new(|_: HashMap<String, String>| Box::pin(async { ("".to_owned(), HashMap::new()) }))
+        Box::new(|_: HashMap<String, String>| {
+            Box::pin(async {
+                (
+                    "".to_owned(),
+                    std::rc::Rc::new(std::cell::RefCell::new(HashMap::new())),
+                )
+            })
+        })
     }
 
     /// Returns child routes for hierarchical routing.
@@ -304,7 +322,7 @@ impl ApexServerRouter {
 
         let (child_html, child_data) = handler(params_map).await;
 
-        data.extend(child_data);
+        data.extend(child_data.borrow().clone());
 
         if html.contains("<!-- @outlet-begin -->") && html.contains("<!-- @outlet-end -->") {
             Self::replace_outlet_content(&parent_path, html, &child_html);
