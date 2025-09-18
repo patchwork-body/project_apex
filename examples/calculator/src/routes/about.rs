@@ -41,31 +41,8 @@ pub fn about() {
         <div class="about">
             <Card>
                 <#header>
-                    <h1>{loader_name.get()}</h1>
-
-                    <Card>
-                        <Button onclick={inc_age.clone()}>{loader_age.get()}</Button>
-                    </Card>
-                </#header>
-
-                <Card>
-                    <#header>
-                        second title here
-                    </#header>
-
-                    hello world here
                     <Button onclick={inc_age.clone()}>{loader_age.get()}</Button>
-                </Card>
-
-                <Button onclick={inc_age.clone()}>{loader_age.get()}</Button>
-
-                // <#header>
-                //     <h1>{loader_name.get()}</h1>
-                // </#header>
-
-                // <#content>
-                //     <p>Age: {loader_age.get()}</p>
-                // </#content>
+                </#header>
             </Card>
         </div>
     }

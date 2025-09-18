@@ -14,10 +14,10 @@ pub fn card() {
             <#slot content>
                 <p>Card content</p>
             </#slot>
-            <#slot footer>
+            <#slot>
                 <button onclick={hello_world}>Hello world</button>
             </#slot>
-            <#slot>
+            <#slot footer>
                 <button onclick={hello_world}>Hello world</button>
             </#slot>
         </div>

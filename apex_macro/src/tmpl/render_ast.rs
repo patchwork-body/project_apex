@@ -258,6 +258,7 @@ pub(crate) fn render_ast(
                     }
 
                     let mut render_slots_map = quote! { std::collections::HashMap::new() };
+                    let mut hydrate_slots_map = quote! { std::collections::HashMap::new() };
                     let mut regular_children = Vec::new();
                     let mut all_slot_expressions = Vec::new();
 
@@ -283,6 +284,21 @@ pub(crate) fn render_ast(
                                         map
                                     }
                                 };
+                                // Hydration closures for named slots
+                                hydrate_slots_map = quote! {
+                                    {
+                                        let mut map = #hydrate_slots_map;
+
+                                        map.insert(#slot_name.to_string(), std::rc::Rc::new(Box::new(move |
+                                            expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
+                                            elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                                        | {
+                                            #(#slot_expressions)*
+                                        }) as Box<dyn Fn(&std::collections::HashMap<String, apex::web_sys::Text>, &std::collections::HashMap<String, apex::web_sys::Element>) + 'static>));
+
+                                        map
+                                    }
+                                };
                             } else {
                                 // Variables need to be captured - each slot gets its own closure with cloned variables
                                 render_slots_map = quote! {
@@ -301,6 +317,26 @@ pub(crate) fn render_ast(
                                         map
                                     }
                                 };
+
+                                // Hydration closures for named slots with captured vars
+                                hydrate_slots_map = quote! {
+                                    {
+                                        let mut map = #hydrate_slots_map;
+
+                                        map.insert(#slot_name.to_string(), std::rc::Rc::new(Box::new({
+                                            #(let #slot_vars = #slot_vars.clone();)*
+
+                                            move |
+                                                expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
+                                                elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                                            | {
+                                                #(#slot_expressions)*
+                                            }
+                                        }) as Box<dyn Fn(&std::collections::HashMap<String, apex::web_sys::Text>, &std::collections::HashMap<String, apex::web_sys::Element>) + 'static>));
+
+                                        map
+                                    }
+                                };
                             }
 
                             all_slot_expressions.extend(slot_expressions);
@@ -308,8 +344,6 @@ pub(crate) fn render_ast(
                             regular_children.push(child.clone());
                         }
                     }
-
-                    expressions.extend(all_slot_expressions);
 
                     // Handle regular children (unnamed slot)
                     let (children_instructions, children_expressions) =
@@ -321,26 +355,44 @@ pub(crate) fn render_ast(
                         if children_vars.is_empty() {
                             // No variables to capture, create a simple closure
                             builder_chain = quote! {
-                                #builder_chain.render_children(Box::new(move |buffer: &mut String, data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>| {
-                                    #(#children_instructions)*
-                                }))
+                                #builder_chain
+                                    .render_children(Box::new(move |buffer: &mut String, data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>| {
+                                        #(#children_instructions)*
+                                    }))
+                                    .hydrate_children(Box::new(move |
+                                        expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
+                                        elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                                    | {
+                                        #(#children_expressions)*
+                                    }))
                             };
                         } else {
                             // Variables need to be captured
                             builder_chain = quote! {
-                                #builder_chain.render_children(Box::new({
-                                    #(let #children_vars = #children_vars.clone();)*
+                                #builder_chain
+                                    .render_children(Box::new({
+                                        #(let #children_vars = #children_vars.clone();)*
 
-                                    move |buffer: &mut String, data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>| {
-                                        #(#children_instructions)*
-                                    }
-                                }))
+                                        move |buffer: &mut String, data: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>| {
+                                            #(#children_instructions)*
+                                        }
+                                    }))
+                                    .hydrate_children(Box::new({
+                                        #(let #children_vars = #children_vars.clone();)*
+
+                                        move |
+                                            expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
+                                            elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                                        | {
+                                            #(#children_expressions)*
+                                        }
+                                    }))
                             };
                         }
                     }
 
                     builder_chain = quote! {
-                        #builder_chain.named_slots(#render_slots_map)
+                        #builder_chain.named_slots(#render_slots_map).hydrate_named_slots(#hydrate_slots_map)
                     };
 
                     instructions.push(quote! {
@@ -363,8 +415,6 @@ pub(crate) fn render_ast(
                             hydrate(expressions_map, elements_map)
                         }
                     });
-
-                    expressions.extend(children_expressions);
                 } else {
                     let tag_name = tag.clone();
                     let element_counter = quote! { apex::apex_utils::next_element_counter() };
@@ -597,14 +647,14 @@ pub(crate) fn render_ast(
                                 #(#default_instructions)*
                             }
                         });
-
                         expressions.push(quote! {
-                            apex::web_sys::console::log_1(&"named_slots_keys:".into());
-                            apex::web_sys::console::log_1(&#slot_name.to_string().into());
-                            apex::web_sys::console::log_1(&format!("{:?}", named_slots_keys).into());
-                            apex::web_sys::console::log_1(&format!("{:?}", !named_slots_keys.contains(&#slot_name.to_owned())).into());
-
-                            if !named_slots_keys.contains(&#slot_name.to_owned()) {
+                            if let Some(hydrate_named_slots) = &hydrate_named_slots {
+                                if let Some(hydrate_slot) = hydrate_named_slots.get(#slot_name) {
+                                    hydrate_slot(expressions_map, elements_map);
+                                } else {
+                                    #(#default_expressions)*
+                                }
+                            } else {
                                 #(#default_expressions)*
                             }
                         });
@@ -613,6 +663,13 @@ pub(crate) fn render_ast(
                             if let Some(named_slots) = &named_slots {
                                 if let Some(render_slot) = named_slots.get(#slot_name) {
                                     render_slot(&mut buffer, data.clone());
+                                }
+                            }
+                        });
+                        expressions.push(quote! {
+                            if let Some(hydrate_named_slots) = &hydrate_named_slots {
+                                if let Some(hydrate_slot) = hydrate_named_slots.get(#slot_name) {
+                                    hydrate_slot(expressions_map, elements_map);
                                 }
                             }
                         });
@@ -629,7 +686,9 @@ pub(crate) fn render_ast(
                     });
 
                     expressions.push(quote! {
-                        if !has_render_children {
+                        if let Some(hydrate_children) = &hydrate_children {
+                            hydrate_children(expressions_map, elements_map);
+                        } else {
                             #(#default_expressions)*
                         }
                     });
@@ -637,6 +696,11 @@ pub(crate) fn render_ast(
                     instructions.push(quote! {
                         if let Some(render_children) = render_children.clone() {
                             render_children(&mut buffer, data.clone());
+                        }
+                    });
+                    expressions.push(quote! {
+                        if let Some(hydrate_children) = &hydrate_children {
+                            hydrate_children(expressions_map, elements_map);
                         }
                     });
                 }

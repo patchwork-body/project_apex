@@ -38,8 +38,18 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         .chain(std::iter::once(quote! {
             pub render_children: Option<std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>>>,
             pub named_slots: Option<std::collections::HashMap<String, std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>>>>,
-            pub named_slots_keys: Vec<String>,
-            pub has_render_children: bool,
+            pub hydrate_children: Option<std::rc::Rc<Box<
+                dyn Fn(
+                    &std::collections::HashMap<String, apex::web_sys::Text>,
+                    &std::collections::HashMap<String, apex::web_sys::Element>
+                ) + 'static
+            >>>,
+            pub hydrate_named_slots: Option<std::collections::HashMap<String, std::rc::Rc<Box<
+                dyn Fn(
+                    &std::collections::HashMap<String, apex::web_sys::Text>,
+                    &std::collections::HashMap<String, apex::web_sys::Element>
+                ) + 'static
+            >>>>,
         }));
 
     // Generate builder struct fields (Option for all)
@@ -56,8 +66,18 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         .chain(std::iter::once(quote! {
             render_children: Option<std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>>>,
             named_slots: Option<std::collections::HashMap<String, std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>>>>,
-            named_slots_keys: Vec<String>,
-            has_render_children: bool,
+            hydrate_children: Option<std::rc::Rc<Box<
+                dyn Fn(
+                    &std::collections::HashMap<String, apex::web_sys::Text>,
+                    &std::collections::HashMap<String, apex::web_sys::Element>
+                ) + 'static
+            >>>,
+            hydrate_named_slots: Option<std::collections::HashMap<String, std::rc::Rc<Box<
+                dyn Fn(
+                    &std::collections::HashMap<String, apex::web_sys::Text>,
+                    &std::collections::HashMap<String, apex::web_sys::Element>
+                ) + 'static
+            >>>>,
         }));
 
     // Generate builder setter methods
@@ -74,16 +94,37 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
      }).chain(std::iter::once(quote! {
          pub fn render_children(mut self, value: Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>) -> Self {
              self.render_children = Some(std::rc::Rc::new(value));
-             self.has_render_children = true;
              self
          }
      })).chain(std::iter::once(quote! {
          pub fn named_slots(mut self, value: std::collections::HashMap<String, std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>>>) -> Self {
-             self.named_slots_keys = value.keys().cloned().collect();
              self.named_slots = Some(value);
              self
          }
      }));
+
+    // Generate builder setters (wasm32-only) for hydration closures
+    let builder_setters = builder_setters.chain(std::iter::once(quote! {
+        pub fn hydrate_children(mut self, value: Box<
+            dyn Fn(
+                &std::collections::HashMap<String, apex::web_sys::Text>,
+                &std::collections::HashMap<String, apex::web_sys::Element>
+            ) + 'static
+        >) -> Self {
+            self.hydrate_children = Some(std::rc::Rc::new(value));
+            self
+        }
+    })).chain(std::iter::once(quote! {
+        pub fn hydrate_named_slots(mut self, value: std::collections::HashMap<String, std::rc::Rc<Box<
+            dyn Fn(
+                &std::collections::HashMap<String, apex::web_sys::Text>,
+                &std::collections::HashMap<String, apex::web_sys::Element>
+            ) + 'static
+        >>>) -> Self {
+            self.hydrate_named_slots = Some(value);
+            self
+        }
+    }));
 
     // Generate builder default field values
     let builder_default_fields = props
@@ -95,8 +136,8 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         .chain(std::iter::once(quote! {
             render_children: None,
             named_slots: None,
-            named_slots_keys: Vec::new(),
-            has_render_children: bool::default(),
+            hydrate_children: None,
+            hydrate_named_slots: None,
         }));
 
     // Generate builder build method
@@ -118,8 +159,8 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
         .chain(std::iter::once(quote! {
             render_children: self.render_children.clone(),
             named_slots: self.named_slots.clone(),
-            named_slots_keys: self.named_slots_keys.clone(),
-            has_render_children: self.has_render_children.clone(),
+            hydrate_children: self.hydrate_children.clone(),
+            hydrate_named_slots: self.hydrate_named_slots.clone(),
         }));
 
     let prop_bindings = props
@@ -137,9 +178,9 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
             let named_slots = self.named_slots.clone();
 
             #[cfg(target_arch = "wasm32")]
-            let named_slots_keys = self.named_slots_keys.clone();
+            let hydrate_children = self.hydrate_children.clone();
             #[cfg(target_arch = "wasm32")]
-            let has_render_children = self.has_render_children.clone();
+            let hydrate_named_slots = self.hydrate_named_slots.clone();
         }))
         .collect::<Vec<_>>();
 
