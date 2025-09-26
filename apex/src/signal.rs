@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::rc::Rc;
 use std::fmt;
+use std::rc::Rc;
 
 thread_local! {
     static EFFECTS: RefCell<std::collections::HashMap<usize, Box<dyn Fn()>>> = RefCell::new(std::collections::HashMap::new());

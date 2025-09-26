@@ -327,3 +327,42 @@ fn test_component_with_slot_passing_another_component() {
 
     assert_eq!(result, "<div><button>Click me</button></div>");
 }
+
+#[test]
+fn test_conditional_directive() {
+    let result = tmpl! {
+        {#if true}
+            Hello, world!
+        {/if}
+    };
+
+    assert_eq!(result, "Hello, world!");
+}
+
+#[test]
+fn test_conditional_directive_with_else() {
+    let result = tmpl! {
+        {#if false}
+            Hello, world!
+        {:else}
+            Hello, world 2!
+        {/if}
+    };
+
+    assert_eq!(result, "Hello, world 2!");
+}
+
+#[test]
+fn test_conditional_directive_with_else_if() {
+    let result = tmpl! {
+        {#if false}
+            Hello, world!
+        {:else if true}
+            Hello, world 2!
+        {:else}
+            Hello, world 3!
+        {/if}
+    };
+
+    assert_eq!(result, "Hello, world 2!");
+}

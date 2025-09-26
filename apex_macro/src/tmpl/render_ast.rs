@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::tmpl::{Attribute, TmplAst};
+use crate::tmpl::{Attribute, ConditionalBlock, TmplAst};
 use quote::quote;
 use syn::{Ident, visit::Visit};
 
@@ -62,9 +62,15 @@ pub(crate) fn collect_variables_from_ast(ast_nodes: &[TmplAst]) -> Vec<Ident> {
                     visit_ast_node(child, visitor);
                 }
             }
-            TmplAst::ConditionalDirective(if_blocks) => {
-                for if_block in if_blocks {
-                    for child in &if_block.children {
+            TmplAst::ConditionalDirective(conditional_blocks) => {
+                for conditional_block in conditional_blocks {
+                    let children = match conditional_block {
+                        ConditionalBlock::If { children, .. } => children,
+                        ConditionalBlock::ElseIf { children, .. } => children,
+                        ConditionalBlock::Else { children } => children,
+                    };
+
+                    for child in children {
                         visit_ast_node(child, visitor);
                     }
                 }
@@ -167,6 +173,10 @@ pub(crate) fn render_ast(
     let mut instructions = Vec::new();
     let mut expressions = Vec::new();
 
+    expressions.push(quote! {
+        let idle_run = false;
+    });
+
     // Trim whitespace around slot interpolations
     let content = trim_whitespace_around_slots(content);
 
@@ -189,11 +199,21 @@ pub(crate) fn render_ast(
                         {
                             #(let #vars = #vars.clone();)*
                             let text_node_counter = #text_node_counter;
-                            if let Some(text_node) = expressions_map.get(&text_node_counter.to_string()).cloned() {
+                            if !idle_run {
+                                if let Some(text_node) = state.borrow().expressions_map.borrow().get(&text_node_counter.to_string()).cloned() {
 
-                                apex::effect!({
-                                    text_node.set_data(&(#expr_tokens).to_string());
-                                });
+                                    apex::effect!({
+                                        apex::web_sys::console::log_1(&format!("Text node set: {:#?}, value: {:#?}", text_node_counter.clone(), (#expr_tokens).to_string()).into());
+
+                                        // if text_node_counter == 4 {
+                                        //     apex::web_sys::console::log_1(&format!("IF TEXT NODE SET: {:#?}", text_node_counter.clone()).into());
+                                        //     // apex::web_sys::console::log_1(&format!("Text node: {:#?}", text_node.clone()).into());
+                                        //     // apex::web_sys::console::log_1(&format!("Text node data: {:#?}", text_node.data()).into());
+                                        // } else {
+                                        //     // text_node.set_data(&(#expr_tokens).to_string());
+                                        // }
+                                    });
+                                }
                             }
                         }
                     });
@@ -290,11 +310,10 @@ pub(crate) fn render_ast(
                                         let mut map = #hydrate_slots_map;
 
                                         map.insert(#slot_name.to_string(), std::rc::Rc::new(Box::new(move |
-                                            expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
-                                            elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                                            state: std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
                                         | {
                                             #(#slot_expressions)*
-                                        }) as Box<dyn Fn(&std::collections::HashMap<String, apex::web_sys::Text>, &std::collections::HashMap<String, apex::web_sys::Element>) + 'static>));
+                                        }) as Box<dyn Fn(std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>) + 'static>));
 
                                         map
                                     }
@@ -327,12 +346,11 @@ pub(crate) fn render_ast(
                                             #(let #slot_vars = #slot_vars.clone();)*
 
                                             move |
-                                                expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
-                                                elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                                                state: std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
                                             | {
                                                 #(#slot_expressions)*
                                             }
-                                        }) as Box<dyn Fn(&std::collections::HashMap<String, apex::web_sys::Text>, &std::collections::HashMap<String, apex::web_sys::Element>) + 'static>));
+                                        }) as Box<dyn Fn(std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>) + 'static>));
 
                                         map
                                     }
@@ -360,8 +378,7 @@ pub(crate) fn render_ast(
                                         #(#children_instructions)*
                                     }))
                                     .hydrate_children(Box::new(move |
-                                        expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
-                                        elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                                        state: std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
                                     | {
                                         #(#children_expressions)*
                                     }))
@@ -381,8 +398,7 @@ pub(crate) fn render_ast(
                                         #(let #children_vars = #children_vars.clone();)*
 
                                         move |
-                                            expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
-                                            elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                                            state: std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
                                         | {
                                             #(#children_expressions)*
                                         }
@@ -412,7 +428,7 @@ pub(crate) fn render_ast(
                             let component_instance = #builder_chain.build();
                             let hydrate = component_instance.hydrate();
 
-                            hydrate(expressions_map, elements_map)
+                            hydrate(state.clone())
                         }
                     });
                 } else {
@@ -476,17 +492,18 @@ pub(crate) fn render_ast(
 
                                     let vars = visitor.identifiers;
 
-                                        Some(quote! {
-                                            {
+                                    Some(quote! {
+                                        {
                                                 #(let #vars = #vars.clone();)*
-                                                if let Some(element) = elements_map.get(&element_counter.to_string()).cloned() {
+
+                                                if let Some(element) = state.borrow().elements_map.borrow().get(&element_counter.to_string()).cloned() {
                                                     apex::effect!({
                                                         element.set_attribute(#k, &(#expr_tokens).to_string());
                                                     });
-                                            } else {
-                                                apex::web_sys::console::warn_1(&format!("Warning: element {} not found during hydration", element_counter.to_string()).into());
-                                            }
-                                    }
+                                                } else {
+                                                    apex::web_sys::console::warn_1(&format!("Warning: element {} not found during hydration", element_counter.to_string()).into());
+                                                }
+                                        }
                                     })
                                 } else {
                                     None
@@ -571,7 +588,7 @@ pub(crate) fn render_ast(
                                                 handler_fn(event);
                                             }) as Box<dyn FnMut(#event_type)>);
 
-                                            if let Some(element) = elements_map.get(&element_counter.to_string()).cloned() {
+                                            if let Some(element) = state.borrow().elements_map.borrow().get(&element_counter.to_string()).cloned() {
                                                 let _ = element.add_event_listener_with_callback(
                                                     #event_name,
                                                     closure.as_ref().unchecked_ref()
@@ -650,7 +667,7 @@ pub(crate) fn render_ast(
                         expressions.push(quote! {
                             if let Some(hydrate_named_slots) = &hydrate_named_slots {
                                 if let Some(hydrate_slot) = hydrate_named_slots.get(#slot_name) {
-                                    hydrate_slot(expressions_map, elements_map);
+                                    hydrate_slot(state.clone());
                                 } else {
                                     #(#default_expressions)*
                                 }
@@ -669,7 +686,7 @@ pub(crate) fn render_ast(
                         expressions.push(quote! {
                             if let Some(hydrate_named_slots) = &hydrate_named_slots {
                                 if let Some(hydrate_slot) = hydrate_named_slots.get(#slot_name) {
-                                    hydrate_slot(expressions_map, elements_map);
+                                    hydrate_slot(state.clone());
                                 }
                             }
                         });
@@ -687,7 +704,7 @@ pub(crate) fn render_ast(
 
                     expressions.push(quote! {
                         if let Some(hydrate_children) = &hydrate_children {
-                            hydrate_children(expressions_map, elements_map);
+                            hydrate_children(state.clone());
                         } else {
                             #(#default_expressions)*
                         }
@@ -700,10 +717,447 @@ pub(crate) fn render_ast(
                     });
                     expressions.push(quote! {
                         if let Some(hydrate_children) = &hydrate_children {
-                            hydrate_children(expressions_map, elements_map);
+                            hydrate_children(state.clone());
                         }
                     });
                 }
+            }
+            TmplAst::ConditionalDirective(conditional_blocks) => {
+                let mut templates_counter = 0;
+                let mut children_instructions_results = quote! {};
+                let conditional_counter = quote! { apex::apex_utils::next_conditional_counter() };
+                let mut templates = quote! {
+                    let conditional_counter = #conditional_counter;
+                };
+
+                let mut conditional_render = quote! {
+                    buffer.push_str("<!-- @conditional-begin:");
+                    buffer.push_str(&conditional_counter.to_string());
+                    buffer.push_str(" -->");
+                };
+
+                let mut conditional_hydration = quote! {};
+                let mut conditional_rerender = quote! {};
+                let mut conditional_rehydration = quote! {};
+
+                // Collect all variables from all conditional blocks
+                let mut all_conditional_vars = Vec::new();
+                for conditional_block in conditional_blocks {
+                    let children = match conditional_block {
+                        ConditionalBlock::If { children, .. } => children,
+                        ConditionalBlock::ElseIf { children, .. } => children,
+                        ConditionalBlock::Else { children } => children,
+                    };
+                    let children_vars = collect_variables_from_ast(children);
+                    all_conditional_vars.extend(children_vars);
+                }
+
+                for conditional_block in conditional_blocks {
+                    match conditional_block {
+                        ConditionalBlock::If {
+                            condition,
+                            children,
+                        } => {
+                            let (children_instructions, children_expressions) =
+                                render_ast(children);
+
+                            let children_instructions_ident = syn::Ident::new(
+                                &format!("children_instructions_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_text_node_counter_ident = syn::Ident::new(
+                                &format!("current_text_node_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_element_counter_ident = syn::Ident::new(
+                                &format!("current_element_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_conditional_counter_ident = syn::Ident::new(
+                                &format!("current_conditional_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            children_instructions_results = quote! {
+                                let #children_instructions_ident = {
+                                    let mut buffer = String::with_capacity(1024);
+                                    #(#children_instructions)*;
+                                    buffer
+                                };
+                            };
+
+                            conditional_hydration = quote! {
+                                #conditional_hydration
+                                let #current_text_node_counter_ident = apex::apex_utils::get_text_node_counter();
+                                let #current_element_counter_ident = apex::apex_utils::get_element_counter();
+                                let #current_conditional_counter_ident = apex::apex_utils::get_conditional_counter();
+                                let idle_run = true;
+                                #(#children_expressions)*
+                                let idle_run = false;
+                            };
+
+                            conditional_rehydration = quote! {
+                                #conditional_rehydration
+
+                                if template_id == format!("{}/{}", conditional_counter, #templates_counter) {
+                                    apex::apex_utils::reset_text_node_counter(#current_text_node_counter_ident.into());
+                                    apex::apex_utils::reset_element_counter(#current_element_counter_ident.into());
+                                    apex::apex_utils::reset_conditional_counter(#current_conditional_counter_ident.into());
+                                    #(#children_expressions)*
+                                }
+                            };
+
+                            templates = quote! {
+                                #templates
+                                let template_id = format!("{}/{}", conditional_counter, #templates_counter);
+                                buffer.push_str("<template id=\"");
+                                buffer.push_str(&template_id);
+                                buffer.push_str("\">");
+                                buffer.push_str(&#children_instructions_ident);
+                                buffer.push_str("</template>");
+                            };
+
+                            if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(condition) {
+                                conditional_render = quote! {
+                                    #conditional_render
+
+                                    if #expr_tokens {
+                                        buffer.push_str(&#children_instructions_ident);
+                                    }
+                                };
+
+                                conditional_rerender = quote! {
+                                    if #expr_tokens {
+                                        let template_id = format!("{}/{}", conditional_counter, #templates_counter);
+
+                                        if let Some(current_template_id_value) = current_template_id.get() {
+                                            if current_template_id_value == template_id {
+                                                return;
+                                            } else {
+                                                current_template_id.set(Some(template_id.clone()));
+                                            }
+                                        }
+
+                                        if current_template_id.get().is_none() {
+                                            current_template_id.set(Some(template_id.clone()));
+                                        }
+
+                                        let event_init = apex::web_sys::CustomEventInit::new();
+                                        let detail = apex::js_sys::Object::new();
+
+                                        let _ = apex::js_sys::Reflect::set(
+                                            &detail,
+                                            &"template_id".into(),
+                                            &template_id.into(),
+                                        );
+
+                                        event_init.set_detail(&detail);
+
+                                        if let Ok(custom_event) =
+                                            apex::web_sys::CustomEvent::new_with_event_init_dict(
+                                                "apex:rerender-conditional",
+                                                &event_init,
+                                            )
+                                        {
+                                            let _ = document.dispatch_event(&custom_event);
+                                        }
+                                    }
+                                };
+                            }
+
+                            templates_counter += 1;
+                        }
+                        ConditionalBlock::ElseIf {
+                            condition,
+                            children,
+                        } => {
+                            let (children_instructions, children_expressions) =
+                                render_ast(children);
+
+                            let children_instructions_ident = syn::Ident::new(
+                                &format!("children_instructions_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_text_node_counter_ident = syn::Ident::new(
+                                &format!("current_text_node_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_element_counter_ident = syn::Ident::new(
+                                &format!("current_element_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_conditional_counter_ident = syn::Ident::new(
+                                &format!("current_conditional_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            children_instructions_results = quote! {
+                                #children_instructions_results
+                                let #children_instructions_ident = {
+                                    let mut buffer = String::with_capacity(1024);
+                                    #(#children_instructions)*;
+                                    buffer
+                                };
+                            };
+
+                            conditional_hydration = quote! {
+                                #conditional_hydration
+                                let #current_text_node_counter_ident = apex::apex_utils::get_text_node_counter();
+                                let #current_element_counter_ident = apex::apex_utils::get_element_counter();
+                                let #current_conditional_counter_ident = apex::apex_utils::get_conditional_counter();
+                                let idle_run = true;
+                                #(#children_expressions)*
+                                let idle_run = false;
+                            };
+
+                            conditional_rehydration = quote! {
+                                #conditional_rehydration
+                                else if template_id == format!("{}/{}", conditional_counter, #templates_counter) {
+                                    apex::apex_utils::reset_text_node_counter(#current_text_node_counter_ident.into());
+                                    apex::apex_utils::reset_element_counter(#current_element_counter_ident.into());
+                                    apex::apex_utils::reset_conditional_counter(#current_conditional_counter_ident.into());
+                                    #(#children_expressions)*
+                                }
+                            };
+
+                            templates = quote! {
+                                #templates
+                                let template_id = format!("{}/{}", conditional_counter, #templates_counter);
+                                buffer.push_str("<template id=\"");
+                                buffer.push_str(&template_id);
+                                buffer.push_str("\">");
+                                buffer.push_str(&#children_instructions_ident);
+                                buffer.push_str("</template>");
+                            };
+
+                            if let Ok(expr_tokens) = syn::parse_str::<syn::Expr>(condition) {
+                                conditional_render = quote! {
+                                    #conditional_render
+                                    else if #expr_tokens {
+                                        buffer.push_str(&#children_instructions_ident);
+                                    }
+                                };
+
+                                conditional_rerender = quote! {
+                                    #conditional_rerender
+                                    else if #expr_tokens {
+                                        let template_id = format!("{}/{}", conditional_counter, #templates_counter);
+
+                                        if let Some(current_template_id_value) = current_template_id.get() {
+                                            if current_template_id_value == template_id {
+                                                return;
+                                            } else {
+                                                current_template_id.set(Some(template_id.clone()));
+                                            }
+                                        }
+
+                                        if current_template_id.get().is_none() {
+                                            current_template_id.set(Some(template_id.clone()));
+                                        }
+
+                                        let event_init = apex::web_sys::CustomEventInit::new();
+                                        let detail = apex::js_sys::Object::new();
+
+                                        let _ = apex::js_sys::Reflect::set(
+                                            &detail,
+                                            &"template_id".into(),
+                                            &template_id.into(),
+                                        );
+
+                                        event_init.set_detail(&detail);
+
+                                        if let Ok(custom_event) =
+                                            apex::web_sys::CustomEvent::new_with_event_init_dict(
+                                                "apex:rerender-conditional",
+                                                &event_init,
+                                            )
+                                        {
+                                            let _ = document.dispatch_event(&custom_event);
+                                        }
+                                    }
+                                };
+                            }
+
+                            templates_counter += 1;
+                        }
+                        ConditionalBlock::Else { children } => {
+                            let (children_instructions, children_expressions) =
+                                render_ast(children);
+
+                            let children_instructions_ident = syn::Ident::new(
+                                &format!("children_instructions_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_text_node_counter_ident = syn::Ident::new(
+                                &format!("current_text_node_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_element_counter_ident = syn::Ident::new(
+                                &format!("current_element_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            let current_conditional_counter_ident = syn::Ident::new(
+                                &format!("current_conditional_counter_{templates_counter}"),
+                                proc_macro2::Span::call_site(),
+                            );
+
+                            children_instructions_results = quote! {
+                                #children_instructions_results
+                                let #children_instructions_ident = {
+                                    let mut buffer = String::with_capacity(1024);
+                                    #(#children_instructions)*;
+                                    buffer
+                                };
+                            };
+
+                            conditional_hydration = quote! {
+                                #conditional_hydration
+                                let #current_text_node_counter_ident = apex::apex_utils::get_text_node_counter();
+                                let #current_element_counter_ident = apex::apex_utils::get_element_counter();
+                                let #current_conditional_counter_ident = apex::apex_utils::get_conditional_counter();
+                                let idle_run = true;
+                                #(#children_expressions)*
+                                let idle_run = false;
+                            };
+
+                            conditional_rehydration = quote! {
+                                #conditional_rehydration
+                                else {
+                                    apex::apex_utils::reset_text_node_counter(#current_text_node_counter_ident.into());
+                                    apex::apex_utils::reset_element_counter(#current_element_counter_ident.into());
+                                    apex::apex_utils::reset_conditional_counter(#current_conditional_counter_ident.into());
+                                    #(#children_expressions)*
+                                }
+                            };
+
+                            templates = quote! {
+                                #templates
+                                let template_id = format!("{}/{}", conditional_counter, #templates_counter);
+                                buffer.push_str("<template id=\"");
+                                buffer.push_str(&template_id);
+                                buffer.push_str("\">");
+                                buffer.push_str(&#children_instructions_ident);
+                                buffer.push_str("</template>");
+                            };
+
+                            conditional_render = quote! {
+                                #conditional_render
+                                else {
+                                    buffer.push_str(&#children_instructions_ident);
+                                }
+                            };
+
+                            conditional_rerender = quote! {
+                                #conditional_rerender
+                                else {
+                                    let template_id = format!("{}/{}", conditional_counter, #templates_counter);
+
+                                    if let Some(current_template_id_value) = current_template_id.get() {
+                                        if current_template_id_value == template_id {
+                                            return;
+                                        } else {
+                                            current_template_id.set(Some(template_id.clone()));
+                                        }
+                                    }
+
+                                    if current_template_id.get().is_none() {
+                                        current_template_id.set(Some(template_id.clone()));
+                                    }
+
+                                    let event_init = apex::web_sys::CustomEventInit::new();
+                                    let detail = apex::js_sys::Object::new();
+
+                                    let _ = apex::js_sys::Reflect::set(
+                                        &detail,
+                                        &"template_id".into(),
+                                        &template_id.into(),
+                                    );
+
+                                    event_init.set_detail(&detail);
+
+                                    if let Ok(custom_event) =
+                                        apex::web_sys::CustomEvent::new_with_event_init_dict(
+                                            "apex:rerender-conditional",
+                                            &event_init,
+                                        )
+                                    {
+                                        let _ = document.dispatch_event(&custom_event);
+                                    }
+                                }
+                            };
+
+                            templates_counter += 1;
+                        }
+                    };
+                }
+
+                conditional_render = quote! {
+                    #conditional_render
+                    buffer.push_str("<!-- @conditional-end:");
+                    buffer.push_str(&conditional_counter.to_string());
+                    buffer.push_str(" -->");
+                };
+
+                instructions.push(children_instructions_results);
+                instructions.push(templates);
+                instructions.push(conditional_render);
+
+                expressions.push(quote! {
+                    let conditional_counter = #conditional_counter;
+                    #conditional_hydration
+
+                    {
+                        let window = apex::web_sys::window().expect("window not found");
+                        let document = window.document().expect("document not found");
+
+                        let conditional_rehydration_callback = {
+                            #(let #all_conditional_vars = #all_conditional_vars.clone();)*
+                            let state = state.clone();
+
+                            apex::wasm_bindgen::prelude::Closure::wrap(Box::new(move |event: apex::web_sys::CustomEvent| {
+                                let event_detail: apex::wasm_bindgen::JsValue = event.detail();
+
+                                let Ok(template_id) = apex::js_sys::Reflect::get(&event_detail, &"template_id".into())
+                                else {
+                                    return;
+                                };
+
+                                web_sys::console::log_1(&format!("Rehydration callback template id: {template_id:#?}").into());
+
+                                #conditional_rehydration
+                            }) as Box<dyn FnMut(_)>)
+                        };
+
+                        let _ = document.add_event_listener_with_callback(
+                            format!("apex:rehydrate-conditional-{conditional_counter}").as_str(),
+                            conditional_rehydration_callback.as_ref().unchecked_ref(),
+                        );
+
+                        conditional_rehydration_callback.forget();
+                    }
+                });
+
+                expressions.push(quote! {
+                    {
+                        let window = apex::web_sys::window().expect("window not found");
+                        let document = window.document().expect("document not found");
+                        let current_template_id = signal!(None::<String>);
+
+                        apex::effect!({
+                            apex::web_sys::console::log_1(&format!("Conditional rerender").into());
+                            #conditional_rerender
+                        });
+                    }
+                });
             }
             TmplAst::Outlet => {
                 instructions.push(quote! {
@@ -713,7 +1167,7 @@ pub(crate) fn render_ast(
                     }
                 });
             }
-            _ => {}
+            TmplAst::Slot { .. } => {}
         }
     }
 

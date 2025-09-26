@@ -24,9 +24,18 @@ impl Attribute {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct IfBlock {
-    condition: String,
-    children: Vec<TmplAst>,
+pub(crate) enum ConditionalBlock {
+    If {
+        condition: String,
+        children: Vec<TmplAst>,
+    },
+    ElseIf {
+        condition: String,
+        children: Vec<TmplAst>,
+    },
+    Else {
+        children: Vec<TmplAst>,
+    },
 }
 
 pub(crate) type Attributes = std::collections::HashMap<String, Attribute>;
@@ -50,6 +59,6 @@ pub(crate) enum TmplAst {
         slot_name: Option<String>,
         default_children: Option<Vec<TmplAst>>,
     },
-    ConditionalDirective(Vec<IfBlock>),
+    ConditionalDirective(Vec<ConditionalBlock>),
     Outlet,
 }

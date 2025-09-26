@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-mod client_router;
+pub mod client_router;
 mod get_matched_path;
 pub mod init_data;
 mod server_router;

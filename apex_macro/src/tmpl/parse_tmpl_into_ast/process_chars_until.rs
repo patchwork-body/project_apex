@@ -272,7 +272,7 @@ pub(crate) fn process_chars_until(
 
 #[cfg(test)]
 mod tests {
-    use crate::tmpl::{Attribute, Attributes, IfBlock};
+    use crate::tmpl::{Attribute, Attributes, ConditionalBlock};
 
     use super::*;
 
@@ -1016,12 +1016,12 @@ mod tests {
     }
     #[test]
     fn conditional_directive() {
-        let mut chars = "{#if true}Hello, world!{#endif}".chars().peekable();
+        let mut chars = "{#if true}Hello, world!{/if}".chars().peekable();
         let (ast, _) = process_chars_until(&mut chars, None);
 
         assert_eq!(
             ast,
-            vec![TmplAst::ConditionalDirective(vec![IfBlock {
+            vec![TmplAst::ConditionalDirective(vec![ConditionalBlock::If {
                 condition: "true".to_owned(),
                 children: vec![TmplAst::Text("Hello, world!".to_owned())],
             }])]
@@ -1034,7 +1034,7 @@ mod tests {
             <div>
                 {#if 1 + 1 == 2}
                     Hello, world!
-                {#endif}
+                {/if}
             </div>
         "#
         .chars()
@@ -1049,7 +1049,7 @@ mod tests {
                 attributes: Attributes::new(),
                 is_component: false,
                 self_closing: false,
-                children: vec![TmplAst::ConditionalDirective(vec![IfBlock {
+                children: vec![TmplAst::ConditionalDirective(vec![ConditionalBlock::If {
                     condition: "1 + 1 == 2".to_owned(),
                     children: vec![TmplAst::Text("Hello, world!".to_owned())],
                 }])],
@@ -1065,13 +1065,13 @@ mod tests {
                     <span>
                         Hello, world 1!
                     </span>
-                {#endif}
+                {/if}
 
                 {#if 1 + 1 == 2}
                     <span>
                         Hello, world 2!
                     </span>
-                {#endif}
+                {/if}
             </div>
         "#
         .chars()
@@ -1087,7 +1087,7 @@ mod tests {
                 is_component: false,
                 self_closing: false,
                 children: vec![
-                    TmplAst::ConditionalDirective(vec![IfBlock {
+                    TmplAst::ConditionalDirective(vec![ConditionalBlock::If {
                         condition: "1 + 1 == 2".to_owned(),
                         children: vec![TmplAst::Element {
                             tag: "span".to_owned(),
@@ -1097,7 +1097,7 @@ mod tests {
                             children: vec![TmplAst::Text("Hello, world 1!".to_owned())],
                         }],
                     }]),
-                    TmplAst::ConditionalDirective(vec![IfBlock {
+                    TmplAst::ConditionalDirective(vec![ConditionalBlock::If {
                         condition: "1 + 1 == 2".to_owned(),
                         children: vec![TmplAst::Element {
                             tag: "span".to_owned(),
@@ -1118,7 +1118,7 @@ mod tests {
             <div>
                 {#if true}
                     <span>Hello, world!</span>
-                {#endif}
+                {/if}
 
                 <span>Hello, world 2!</span>
             </div>
@@ -1136,7 +1136,7 @@ mod tests {
                 is_component: false,
                 self_closing: false,
                 children: vec![
-                    TmplAst::ConditionalDirective(vec![IfBlock {
+                    TmplAst::ConditionalDirective(vec![ConditionalBlock::If {
                         condition: "true".to_owned(),
                         children: vec![TmplAst::Element {
                             tag: "span".to_owned(),

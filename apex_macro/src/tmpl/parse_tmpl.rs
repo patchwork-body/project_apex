@@ -20,7 +20,7 @@ pub(crate) fn parse_tmpl(input: TokenStream) -> proc_macro2::TokenStream {
 
             #[cfg(target_arch = "wasm32")]
             {
-                let hydrate = move |expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>, elements_map: &std::collections::HashMap<String, apex::web_sys::Element>| {
+                let hydrate = move |state: std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>| {
                     #(#hydration_expressions)*
                 };
 

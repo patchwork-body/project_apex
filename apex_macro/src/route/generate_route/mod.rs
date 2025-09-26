@@ -29,12 +29,11 @@ pub(crate) fn generate_route(args: RouteArgs, input: ItemFn) -> TokenStream {
         quote! {
             fn hydrate_component(
                 &self,
-                expressions_map: &std::collections::HashMap<String, apex::web_sys::Text>,
-                elements_map: &std::collections::HashMap<String, apex::web_sys::Element>
+                state: std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
             ) {
                 let component = #component_name::builder().build();
                 let hydrate_fn = component.hydrate();
-                hydrate_fn(expressions_map, elements_map);
+                hydrate_fn(state.clone());
             }
         }
     } else {

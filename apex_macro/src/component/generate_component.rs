@@ -40,14 +40,12 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
             pub named_slots: Option<std::collections::HashMap<String, std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>>>>,
             pub hydrate_children: Option<std::rc::Rc<Box<
                 dyn Fn(
-                    &std::collections::HashMap<String, apex::web_sys::Text>,
-                    &std::collections::HashMap<String, apex::web_sys::Element>
+                    std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
                 ) + 'static
             >>>,
             pub hydrate_named_slots: Option<std::collections::HashMap<String, std::rc::Rc<Box<
                 dyn Fn(
-                    &std::collections::HashMap<String, apex::web_sys::Text>,
-                    &std::collections::HashMap<String, apex::web_sys::Element>
+                    std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
                 ) + 'static
             >>>>,
         }));
@@ -68,14 +66,12 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
             named_slots: Option<std::collections::HashMap<String, std::rc::Rc<Box<dyn for<'a> Fn(&'a mut String, std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, serde_json::Value>>>) + 'static>>>>,
             hydrate_children: Option<std::rc::Rc<Box<
                 dyn Fn(
-                    &std::collections::HashMap<String, apex::web_sys::Text>,
-                    &std::collections::HashMap<String, apex::web_sys::Element>
+                    std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
                 ) + 'static
             >>>,
             hydrate_named_slots: Option<std::collections::HashMap<String, std::rc::Rc<Box<
                 dyn Fn(
-                    &std::collections::HashMap<String, apex::web_sys::Text>,
-                    &std::collections::HashMap<String, apex::web_sys::Element>
+                    std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
                 ) + 'static
             >>>>,
         }));
@@ -107,8 +103,7 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
     let builder_setters = builder_setters.chain(std::iter::once(quote! {
         pub fn hydrate_children(mut self, value: Box<
             dyn Fn(
-                &std::collections::HashMap<String, apex::web_sys::Text>,
-                &std::collections::HashMap<String, apex::web_sys::Element>
+                std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
             ) + 'static
         >) -> Self {
             self.hydrate_children = Some(std::rc::Rc::new(value));
@@ -117,8 +112,7 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
     })).chain(std::iter::once(quote! {
         pub fn hydrate_named_slots(mut self, value: std::collections::HashMap<String, std::rc::Rc<Box<
             dyn Fn(
-                &std::collections::HashMap<String, apex::web_sys::Text>,
-                &std::collections::HashMap<String, apex::web_sys::Element>
+                std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>
             ) + 'static
         >>>) -> Self {
             self.hydrate_named_slots = Some(value);
@@ -226,7 +220,7 @@ pub(crate) fn generate_component(input: ItemFn) -> TokenStream {
 
         #[cfg(target_arch = "wasm32")]
         impl #struct_name {
-            pub fn hydrate(&self) -> Box<dyn FnOnce(&std::collections::HashMap<String, apex::web_sys::Text>, &std::collections::HashMap<String, apex::web_sys::Element>)> {
+            pub fn hydrate(&self) -> Box<dyn FnOnce(std::rc::Rc<std::cell::RefCell<apex_router::client_router::State>>)> {
                 #(#prop_bindings)*
                 let template_fn = #fn_body;
                 Box::new(template_fn)

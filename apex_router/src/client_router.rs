@@ -11,16 +11,13 @@ pub trait ApexClientRoute {
     fn path(&self) -> &'static str {
         "/"
     }
-    fn hydrate_component(
-        &self,
-        expressions_map: &HashMap<String, web_sys::Text>,
-        elements_map: &HashMap<String, web_sys::Element>,
-    );
+    fn hydrate_component(&self, state: Rc<RefCell<State>>);
     fn children(&self) -> Vec<Box<dyn ApexClientRoute>> {
         Vec::new()
     }
 }
 
+#[derive(Debug)]
 struct Outlet {
     pub begin: Option<web_sys::Comment>,
     pub end: Option<web_sys::Comment>,
@@ -32,14 +29,27 @@ struct RouteChain {
     outlet: RefCell<Option<Outlet>>,
 }
 
+#[derive(Debug)]
+pub struct State {
+    pub expressions_map: RefCell<HashMap<String, web_sys::Text>>,
+    pub elements_map: RefCell<HashMap<String, web_sys::Element>>,
+    conditional_blocks: RefCell<HashMap<String, Outlet>>,
+}
+
 pub struct ApexClientRouter {
     router: Rc<RefCell<Router<RouteChain>>>,
+    state: Rc<RefCell<State>>,
 }
 
 impl ApexClientRouter {
     pub fn new(route: Box<dyn ApexClientRoute>) -> Self {
         let mut r = Self {
             router: Rc::new(RefCell::new(Router::new())),
+            state: Rc::new(RefCell::new(State {
+                expressions_map: RefCell::new(HashMap::new()),
+                elements_map: RefCell::new(HashMap::new()),
+                conditional_blocks: RefCell::new(HashMap::new()),
+            })),
         };
 
         r.mount_root_route(route);
@@ -99,8 +109,6 @@ impl ApexClientRouter {
                     let document = window.document().expect("document not found");
                     let current_path = window.location().pathname().expect("pathname not found");
                     let exclude_path = get_matched_path(&current_path, &path);
-
-                    web_sys::console::log_1(&format!("Navigating to: {path} current_path: {current_path} exclude_path: {exclude_path}").into());
 
                     let fetch_promise = window
                         .fetch_with_str(&format!("{path}?has_exclude&exclude={exclude_path}&"));
@@ -266,11 +274,10 @@ impl ApexClientRouter {
 
         let rehydrate_callback = {
             let router = self.router.clone();
+            let state = self.state.clone();
 
             Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
                 let event_detail: wasm_bindgen::JsValue = event.detail();
-
-                web_sys::console::log_1(&format!("Event detail: {event_detail:#?}").into());
 
                 let Ok(outlet_key) = js_sys::Reflect::get(&event_detail, &"outlet_key".into())
                 else {
@@ -282,8 +289,6 @@ impl ApexClientRouter {
                 else {
                     return;
                 };
-
-                web_sys::console::log_1(&format!("Outlet key: {outlet_key:#?}").into());
 
                 if let Some(outlet_key) = outlet_key.as_string()
                     && let Some(outlet_content) = outlet_content.as_string()
@@ -317,13 +322,10 @@ impl ApexClientRouter {
                         .expect("failed to create div");
                     temp_div.set_inner_html(&outlet_content);
 
-                    web_sys::console::log_1(&format!("HTML text: {outlet_content}").into());
-
                     // Remove all nodes between begin and end comments
                     let mut current_node = begin.next_sibling();
                     while let Some(node) = &current_node {
                         if node.is_same_node(Some(end)) {
-                            web_sys::console::log_1(&"End comment found".to_owned().into());
                             break;
                         }
 
@@ -340,11 +342,10 @@ impl ApexClientRouter {
                         while let Some(child) = temp_div.first_child() {
                             let _ = parent.insert_before(&child, Some(end));
                         }
-                    } else {
-                        web_sys::console::log_1(&"End comment not found".to_owned().into());
                     }
 
-                    Self::hydrate_router(router.clone(), Some(outlet_key));
+                    Self::parse_document(router.clone(), Some(outlet_key.clone()), state.clone());
+                    Self::hydrate_router(router.clone(), Some(outlet_key), state.clone());
                 }
             }) as Box<dyn FnMut(_)>)
         };
@@ -356,7 +357,109 @@ impl ApexClientRouter {
 
         rehydrate_callback.forget();
 
-        Self::hydrate_router(self.router.clone(), None);
+        let rerender_conditional_callback = {
+            let router = self.router.clone();
+            let state = self.state.clone();
+
+            Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
+                let event_detail: wasm_bindgen::JsValue = event.detail();
+
+                let Ok(template_id) = js_sys::Reflect::get(&event_detail, &"template_id".into())
+                else {
+                    return;
+                };
+
+                let Some(template_id) = template_id.as_string() else {
+                    return;
+                };
+
+                let conditional_block_key = template_id.split("/").nth(0).unwrap_or_default();
+                let state_borrow = state.borrow();
+                let conditional_blocks = state_borrow.conditional_blocks.borrow();
+
+                let Some(conditional_block) = conditional_blocks.get(conditional_block_key) else {
+                    web_sys::console::log_1(&"Conditional block not found".to_owned().into());
+                    return;
+                };
+
+                let window = web_sys::window().expect("window not found");
+                let document = window.document().expect("document not found");
+
+                let Some(begin) = &conditional_block.begin else {
+                    web_sys::console::log_1(&"Begin comment not found".to_owned().into());
+                    return;
+                };
+
+                let Some(end) = &conditional_block.end else {
+                    web_sys::console::log_1(&"End comment not found".to_owned().into());
+                    return;
+                };
+
+                let Some(template) = document.get_element_by_id(&template_id) else {
+                    web_sys::console::log_1(&"Template not found".to_owned().into());
+                    return;
+                };
+
+                let template_content = template.inner_html();
+                // Create a temporary div to parse the outlet content
+                let temp_div = document
+                    .create_element("div")
+                    .expect("failed to create div");
+                temp_div.set_inner_html(&template_content);
+
+                // Remove all nodes between begin and end comments
+                let mut current_node = begin.next_sibling();
+                while let Some(node) = &current_node {
+                    if node.is_same_node(Some(end)) {
+                        break;
+                    }
+
+                    let next = node.next_sibling();
+                    if let Some(parent) = node.parent_node() {
+                        let _ = parent.remove_child(node);
+                    }
+
+                    current_node = next;
+                }
+
+                // Insert all nodes from temp_div before the end comment
+                if let Some(parent) = end.parent_node() {
+                    while let Some(child) = temp_div.first_child() {
+                        let _ = parent.insert_before(&child, Some(end));
+                    }
+
+                    Self::parse_document(router.clone(), None, state.clone());
+
+                    let event_init = web_sys::CustomEventInit::new();
+                    let detail = js_sys::Object::new();
+
+                    let _ = js_sys::Reflect::set(
+                        &detail,
+                        &"template_id".into(),
+                        &template_id.clone().into(),
+                    );
+
+                    event_init.set_detail(&detail);
+
+                    if let Ok(custom_event) = web_sys::CustomEvent::new_with_event_init_dict(
+                        format!("apex:rehydrate-conditional-{conditional_block_key}").as_str(),
+                        &event_init,
+                    ) {
+                        let _ = document.dispatch_event(&custom_event);
+                    }
+                }
+            }) as Box<dyn FnMut(_)>)
+        };
+
+        let _ = document.add_event_listener_with_callback(
+            "apex:rerender-conditional",
+            rerender_conditional_callback.as_ref().unchecked_ref(),
+        );
+
+        rerender_conditional_callback.forget();
+
+        Self::parse_document(self.router.clone(), None, self.state.clone());
+        Self::hydrate_router(self.router.clone(), None, self.state.clone());
     }
 
     fn cleanup_init_script() {
@@ -368,8 +471,45 @@ impl ApexClientRouter {
         }
     }
 
-    fn hydrate_router(router: Rc<RefCell<Router<RouteChain>>>, exclude_path: Option<String>) {
+    fn hydrate_router(
+        router: Rc<RefCell<Router<RouteChain>>>,
+        exclude_path: Option<String>,
+        state: Rc<RefCell<State>>,
+    ) {
         apex_utils::reset_counters();
+        let location = web_sys::window().expect("window not found").location();
+        let pathname = location.pathname().expect("pathname not found");
+
+        if let Ok(route_matched) = router.borrow().at(&pathname) {
+            if let Some(parent_patterns_chain) = route_matched.value.parent_pattern.as_ref() {
+                for parent_pattern in parent_patterns_chain.iter() {
+                    let matched_path = get_matched_path(parent_pattern, &pathname);
+
+                    if exclude_path.as_ref() == Some(&matched_path) {
+                        continue;
+                    }
+
+                    if let Ok(parent_route_match) = router
+                        .borrow()
+                        .at(&get_matched_path(parent_pattern, &pathname))
+                    {
+                        parent_route_match
+                            .value
+                            .route
+                            .hydrate_component(state.clone());
+                    }
+                }
+            }
+
+            route_matched.value.route.hydrate_component(state.clone());
+        }
+    }
+
+    fn parse_document(
+        router: Rc<RefCell<Router<RouteChain>>>,
+        exclude_path: Option<String>,
+        state: Rc<RefCell<State>>,
+    ) {
         static SHOW_COMMENT: u32 = 128;
 
         let window = web_sys::window().expect("window not found");
@@ -382,8 +522,6 @@ impl ApexClientRouter {
             )
             .expect("tree walker not found");
 
-        let mut expressions_map: HashMap<String, web_sys::Text> = HashMap::new();
-        let mut elements_map: HashMap<String, web_sys::Element> = HashMap::new();
         let mut nodes_to_remove = Vec::new();
 
         while let Ok(Some(node)) = tree_walker.next_node() {
@@ -404,7 +542,11 @@ impl ApexClientRouter {
                     };
 
                     if let Some(text_node) = next_node.dyn_ref::<web_sys::Text>() {
-                        expressions_map.insert(comment_id.clone(), text_node.clone());
+                        state
+                            .borrow()
+                            .expressions_map
+                            .borrow_mut()
+                            .insert(comment_id.clone(), text_node.clone());
 
                         let Some(next_node) = next_node.next_sibling() else {
                             continue;
@@ -430,7 +572,7 @@ impl ApexClientRouter {
 
                         if end_comment_type == "@expr-text-end" && end_comment_id == comment_id {
                             // Create an empty text node
-                            let text_node = document.create_text_node("");
+                            let text_node = document.create_text_node("*");
 
                             // Insert the text node before the end comment
                             if let Some(parent) = end_comment.parent_node() {
@@ -438,7 +580,11 @@ impl ApexClientRouter {
                             }
 
                             // Store the text node reference in expressions_map
-                            expressions_map.insert(comment_id.clone(), text_node);
+                            state
+                                .borrow()
+                                .expressions_map
+                                .borrow_mut()
+                                .insert(comment_id.clone(), text_node);
 
                             nodes_to_remove.push(comment.clone());
                             nodes_to_remove.push(end_comment.clone());
@@ -453,7 +599,12 @@ impl ApexClientRouter {
                         .dyn_ref::<web_sys::Element>()
                         .expect("element node not found");
 
-                    elements_map.insert(comment_id.clone(), element_node.clone());
+                    state
+                        .borrow()
+                        .elements_map
+                        .borrow_mut()
+                        .insert(comment_id.clone(), element_node.clone());
+
                     nodes_to_remove.push(comment.clone());
                 } else if comment_type == "@outlet-begin" {
                     let exclude_path = exclude_path.clone().unwrap_or_default();
@@ -490,42 +641,64 @@ impl ApexClientRouter {
                             outlet.end = Some(comment.clone());
                         }
                     }
+                } else if comment_type == "@conditional-begin" {
+                    // Check if key exists first, then drop all borrows
+                    let needs_insert = {
+                        let state_borrow = state.borrow();
+                        let conditional_blocks = state_borrow.conditional_blocks.borrow();
+
+                        !conditional_blocks.contains_key(comment_id)
+                    }; // All borrows dropped here
+
+                    if needs_insert {
+                        // Fresh borrows for the mutation
+                        let state_borrow = state.borrow();
+                        let mut conditional_blocks = state_borrow.conditional_blocks.borrow_mut();
+
+                        conditional_blocks.insert(
+                            comment_id.clone(),
+                            Outlet {
+                                begin: Some(comment.clone()),
+                                end: None,
+                            },
+                        );
+                    }
+                } else if comment_type == "@conditional-end" {
+                    // Get the begin comment first, then drop all borrows
+                    let begin = {
+                        let state_borrow = state.borrow();
+                        let conditional_blocks = state_borrow.conditional_blocks.borrow();
+
+                        let Some(conditional_block) = conditional_blocks.get(comment_id) else {
+                            continue;
+                        };
+
+                        if conditional_block.end.is_some() {
+                            continue;
+                        }
+
+                        conditional_block.begin.clone()
+                    }; // All borrows dropped here
+
+                    // Now we can borrow state and conditional_blocks mutably
+                    {
+                        let state_borrow = state.borrow();
+                        let mut conditional_blocks = state_borrow.conditional_blocks.borrow_mut();
+
+                        conditional_blocks.insert(
+                            comment_id.clone(),
+                            Outlet {
+                                begin,
+                                end: Some(comment.clone()),
+                            },
+                        );
+                    }
                 }
             }
         }
 
-        // for node in nodes_to_remove {
-        //     node.remove();
-        // }
-
-        let location = window.location();
-        let pathname = location.pathname().expect("pathname not found");
-
-        if let Ok(route_matched) = router.borrow().at(&pathname) {
-            if let Some(parent_patterns_chain) = route_matched.value.parent_pattern.as_ref() {
-                for parent_pattern in parent_patterns_chain.iter() {
-                    let matched_path = get_matched_path(parent_pattern, &pathname);
-
-                    if exclude_path.as_ref() == Some(&matched_path) {
-                        continue;
-                    }
-
-                    if let Ok(parent_route_match) = router
-                        .borrow()
-                        .at(&get_matched_path(parent_pattern, &pathname))
-                    {
-                        parent_route_match
-                            .value
-                            .route
-                            .hydrate_component(&expressions_map, &elements_map);
-                    }
-                }
-            }
-
-            route_matched
-                .value
-                .route
-                .hydrate_component(&expressions_map, &elements_map);
+        for node in nodes_to_remove {
+            node.remove();
         }
     }
 }

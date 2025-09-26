@@ -434,7 +434,12 @@ pub fn calculator() {
     tmpl! {
         <div class="calculator">
             <div class="display">
-                <span class="prev-expression">{display_prev_expression.get()}</span>
+                {#if !display_prev_expression.get().is_empty()}
+                    <span class="prev-expression">Awesome: {display_prev_expression.get()}</span>
+                {:else}
+                    <span class="prev-expression">No previous expression</span>
+                {/if}
+
                 <span class="current-expression">{display_expression.get()}</span>
             </div>
 
