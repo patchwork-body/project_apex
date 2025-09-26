@@ -203,15 +203,7 @@ pub(crate) fn render_ast(
                                 if let Some(text_node) = state.borrow().expressions_map.borrow().get(&text_node_counter.to_string()).cloned() {
 
                                     apex::effect!({
-                                        apex::web_sys::console::log_1(&format!("Text node set: {:#?}, value: {:#?}", text_node_counter.clone(), (#expr_tokens).to_string()).into());
-
-                                        // if text_node_counter == 4 {
-                                        //     apex::web_sys::console::log_1(&format!("IF TEXT NODE SET: {:#?}", text_node_counter.clone()).into());
-                                        //     // apex::web_sys::console::log_1(&format!("Text node: {:#?}", text_node.clone()).into());
-                                        //     // apex::web_sys::console::log_1(&format!("Text node data: {:#?}", text_node.data()).into());
-                                        // } else {
-                                        //     // text_node.set_data(&(#expr_tokens).to_string());
-                                        // }
+                                        text_node.set_data(&(#expr_tokens).to_string());
                                     });
                                 }
                             }

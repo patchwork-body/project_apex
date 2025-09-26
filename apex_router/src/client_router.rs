@@ -572,7 +572,7 @@ impl ApexClientRouter {
 
                         if end_comment_type == "@expr-text-end" && end_comment_id == comment_id {
                             // Create an empty text node
-                            let text_node = document.create_text_node("*");
+                            let text_node = document.create_text_node("");
 
                             // Insert the text node before the end comment
                             if let Some(parent) = end_comment.parent_node() {

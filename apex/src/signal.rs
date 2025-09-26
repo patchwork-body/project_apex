@@ -4,9 +4,11 @@ use std::fmt;
 use std::rc::Rc;
 
 thread_local! {
-    static EFFECTS: RefCell<std::collections::HashMap<usize, Box<dyn Fn()>>> = RefCell::new(std::collections::HashMap::new());
+    static EFFECTS: RefCell<std::collections::HashMap<usize, Rc<dyn Fn()>>> = RefCell::new(std::collections::HashMap::new());
     static EFFECT_COUNTER: RefCell<usize> = const { RefCell::new(0) };
     static CURRENT_EFFECT: RefCell<Option<usize>> = const { RefCell::new(None) };
+    static PENDING_NOTIFICATIONS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    static NOTIFYING: RefCell<bool> = const { RefCell::new(false) };
 }
 
 /// A reactive signal holding a value of type T.
@@ -26,8 +28,12 @@ impl<T: 'static + Clone> Signal<T> {
 
     pub fn get(&self) -> T {
         // Auto-subscribe the current effect if one is running
-        CURRENT_EFFECT.with(|current| {
-            if let Some(effect_id) = *current.borrow() {
+        // Use try_with to avoid panics if the thread-local is already borrowed
+        let _ = CURRENT_EFFECT.try_with(|current| {
+            if let Ok(current_borrow) = current.try_borrow()
+                && let Some(effect_id) = *current_borrow
+            {
+                drop(current_borrow); // Release borrow before calling subscribe_effect
                 self.subscribe_effect(effect_id);
             }
         });
@@ -47,20 +53,85 @@ impl<T: 'static + Clone> Signal<T> {
     }
 
     fn notify(&self) {
-        // Call all registered effects
-        let listeners = self.listeners.borrow().clone();
+        // Get the listeners first
+        let listeners = if let Ok(listeners_borrow) = self.listeners.try_borrow() {
+            listeners_borrow.clone()
+        } else {
+            return; // Can't borrow listeners, skip notification
+        };
 
-        for id in listeners {
-            EFFECTS.with(|effects| {
-                if let Some(effect) = effects.borrow().get(&id) {
-                    (effect)();
+        // Add listeners to pending notifications
+        let _ = PENDING_NOTIFICATIONS.try_with(|pending| {
+            if let Ok(mut pending_borrow) = pending.try_borrow_mut() {
+                for id in &listeners {
+                    pending_borrow.push(*id);
                 }
-            });
+            }
+        });
+
+        // Process notifications if we're not already processing
+        let should_process = NOTIFYING
+            .try_with(|notifying| {
+                if let Ok(mut notifying_borrow) = notifying.try_borrow_mut() {
+                    if *notifying_borrow {
+                        return false; // Already processing
+                    }
+                    *notifying_borrow = true;
+                    true
+                } else {
+                    false // Couldn't borrow
+                }
+            })
+            .unwrap_or(false);
+
+        if !should_process {
+            return;
         }
+
+        // Process all pending notifications
+        loop {
+            let next_effect_id = PENDING_NOTIFICATIONS
+                .try_with(|pending| {
+                    if let Ok(mut pending_borrow) = pending.try_borrow_mut() {
+                        pending_borrow.pop()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(None);
+
+            if let Some(effect_id) = next_effect_id {
+                // Get and call the effect
+                let effect_to_call = EFFECTS
+                    .try_with(|effects| {
+                        if let Ok(effects_borrow) = effects.try_borrow() {
+                            effects_borrow.get(&effect_id).cloned()
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(None);
+
+                if let Some(effect) = effect_to_call {
+                    effect();
+                }
+            } else {
+                break; // No more effects to process
+            }
+        }
+
+        // Reset the notifying flag
+        let _ = NOTIFYING.try_with(|notifying| {
+            if let Ok(mut notifying_borrow) = notifying.try_borrow_mut() {
+                *notifying_borrow = false;
+            }
+        });
     }
 
     pub fn subscribe_effect(&self, effect_id: usize) {
-        self.listeners.borrow_mut().insert(effect_id);
+        if let Ok(mut listeners) = self.listeners.try_borrow_mut() {
+            listeners.insert(effect_id);
+        }
     }
 
     pub fn derive<U: 'static + Clone, F: Fn(&T) -> U + 'static>(&self, f: F) -> Signal<U> {
@@ -108,8 +179,10 @@ pub fn effect<F: Fn() + 'static>(f: F) -> usize {
         *c
     });
 
-    EFFECTS.with(|effects| {
-        effects.borrow_mut().insert(id, Box::new(f));
+    let _ = EFFECTS.try_with(|effects| {
+        if let Ok(mut effects_borrow) = effects.try_borrow_mut() {
+            effects_borrow.insert(id, Rc::new(f));
+        }
     });
 
     id // Return the effect ID so it can be used with subscribe_effect
@@ -118,26 +191,38 @@ pub fn effect<F: Fn() + 'static>(f: F) -> usize {
 /// Run an effect with automatic signal subscription tracking
 pub fn run_tracked_effect<F: Fn()>(effect_id: usize, f: F) {
     // Set the current effect context
-    CURRENT_EFFECT.with(|current| {
-        *current.borrow_mut() = Some(effect_id);
+    let _ = CURRENT_EFFECT.try_with(|current| {
+        if let Ok(mut current_borrow) = current.try_borrow_mut() {
+            *current_borrow = Some(effect_id);
+        }
     });
 
     // Run the effect function (this will auto-subscribe to any signals accessed)
     f();
 
     // Clear the current effect context
-    CURRENT_EFFECT.with(|current| {
-        *current.borrow_mut() = None;
+    let _ = CURRENT_EFFECT.try_with(|current| {
+        if let Ok(mut current_borrow) = current.try_borrow_mut() {
+            *current_borrow = None;
+        }
     });
 }
 
 /// Helper function to run an effect by ID (used by the effect! macro)
 pub fn run_effect_by_id(effect_id: usize) {
-    EFFECTS.with(|effects| {
-        if let Some(effect) = effects.borrow().get(&effect_id) {
-            (effect)();
-        }
-    });
+    let effect_to_call = EFFECTS
+        .try_with(|effects| {
+            if let Ok(effects_borrow) = effects.try_borrow() {
+                effects_borrow.get(&effect_id).cloned()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(None);
+
+    if let Some(effect) = effect_to_call {
+        effect();
+    }
 }
 
 /// Macro for ergonomic signal creation: signal!(value)
@@ -210,7 +295,7 @@ mod tests {
         EFFECTS.with(|effects| {
             effects.borrow_mut().insert(
                 id,
-                Box::new(move || {
+                Rc::new(move || {
                     called_clone.set(called_clone.get() + 1);
                 }),
             );

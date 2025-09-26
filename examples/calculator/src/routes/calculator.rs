@@ -435,7 +435,7 @@ pub fn calculator() {
         <div class="calculator">
             <div class="display">
                 {#if !display_prev_expression.get().is_empty()}
-                    <span class="prev-expression">Awesome: {display_prev_expression.get()}</span>
+                    <span class="prev-expression">{display_prev_expression.get()}</span>
                 {:else}
                     <span class="prev-expression">No previous expression</span>
                 {/if}
