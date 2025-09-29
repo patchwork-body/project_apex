@@ -1123,8 +1123,6 @@ pub(crate) fn render_ast(
                                     return;
                                 };
 
-                                web_sys::console::log_1(&format!("Rehydration callback template id: {template_id:#?}").into());
-
                                 #conditional_rehydration
                             }) as Box<dyn FnMut(_)>)
                         };
@@ -1145,7 +1143,6 @@ pub(crate) fn render_ast(
                         let current_template_id = signal!(None::<String>);
 
                         apex::effect!({
-                            apex::web_sys::console::log_1(&format!("Conditional rerender").into());
                             #conditional_rerender
                         });
                     }

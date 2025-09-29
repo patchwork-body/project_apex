@@ -119,6 +119,7 @@ pub(crate) fn process_chars_until(
                     // Check if it starts with "slot"
                     let is_slot_interpolation = lookahead2.peek() == Some(&'s') && {
                         let mut temp = lookahead2.clone();
+
                         temp.next() == Some('s')
                             && temp.next() == Some('l')
                             && temp.next() == Some('o')
@@ -133,6 +134,7 @@ pub(crate) fn process_chars_until(
                             ast.push(TmplAst::Text(" ".to_owned()));
                             has_temp_whitespace = false;
                         }
+
                         ast.push(parse_slot_interpolation(chars));
                         state = ProcessCharsUntilState::AfterExpression;
                     } else {
@@ -146,6 +148,7 @@ pub(crate) fn process_chars_until(
                             name: Some(slot_name),
                             children,
                         });
+
                         state = ProcessCharsUntilState::AfterExpression;
                     }
                 } else {
@@ -172,6 +175,7 @@ pub(crate) fn process_chars_until(
                             self_closing: is_self_closing,
                             children,
                         });
+
                         state = ProcessCharsUntilState::AfterExpression;
                     } else {
                         ast.push(TmplAst::Element {
@@ -181,6 +185,7 @@ pub(crate) fn process_chars_until(
                             self_closing: is_self_closing,
                             children: Vec::new(),
                         });
+
                         state = ProcessCharsUntilState::AfterExpression;
                     }
                 }

@@ -39,11 +39,29 @@ pub fn about() {
 
     tmpl! {
         <div class="about">
+            <span class="name">{loader_name.get()}</span>
+
             <Card>
                 <#header>
                     <Button onclick={inc_age.clone()}>{loader_age.get()}</Button>
                 </#header>
+
+                <#content>
+                    <p>Card content</p>
+                </#content>
+
+                <#footer>
+                    <Button onclick={inc_age.clone()}>{loader_age.get()}</Button>
+                </#footer>
             </Card>
+
+            {#if loader_age.get().is_empty()}
+                <span class="age">You are old</span>
+            {:else if loader_age.get().parse::<u8>().unwrap_or(0) > 30}
+                <span class="age">You are old</span>
+            {:else}
+                <span class="age">You are young</span>
+            {/if}
         </div>
     }
 }
