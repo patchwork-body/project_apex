@@ -10,7 +10,7 @@ web-sys = { version = "^0.3", features = [
   "Window", "Document", "Element", "HtmlButtonElement", "HtmlDivElement", "Comment", "TreeWalker", "NodeFilter", "Node", "NodeList", "Text", "Event", "console", "NodeList", "NodeIterator", "History", "Location", "PopStateEvent", "CustomEvent", "CustomEventInit", "Response", "Request", "RequestInit", "Headers", "EventListener", "MouseEvent"
 ] }
 js-sys = "^0.3"
-bytes = "^1.10"
+bytes = "^1.11"
 futures-util = "^0.3"
 proc-macro2 = "^1.0"
 quote = "^1.0"
